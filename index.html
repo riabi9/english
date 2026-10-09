@@ -181,8 +181,9 @@
                                 <button type="button" onclick="window.adminAddQuestionBlock('reorder')" class="add-q-btn">+ Reordering</button>
                                 <button type="button" onclick="window.adminAddQuestionBlock('match')" class="add-q-btn">+ Matching</button>
                                 <button type="button" onclick="window.adminAddQuestionBlock('link')" class="add-q-btn">+ Linking</button>
+                                <button type="button" onclick="window.adminAddQuestionBlock('tf')" class="add-q-btn">+ True / False</button>
                             </div>
-                            <p class="text-xs text-gray-500 mt-2">Scoring: 1 point per multiple-choice question (and per question inside a passage), 1 point per correct pair in matching/linking, and 1 point for a fully correct reordering.</p>
+                            <p class="text-xs text-gray-500 mt-2">Scoring: 1 point per multiple-choice or true/false question (and per question inside a passage), 1 point per correct pair in matching/linking, and 1 point for a fully correct reordering.</p>
                         </div>
                         <div id="admin-questions-list" class="space-y-4"></div>
                     </div>
@@ -562,6 +563,9 @@
                 if (t === 'mcq') {
                     heading = `Q${n}. ${escapeHtml(q.text)}`;
                     body = mcqOptionsHtml(String(qi), q);
+                } else if (t === 'tf') {
+                    heading = `Q${n}. ${escapeHtml(q.text)}`;
+                    body = mcqOptionsHtml(String(qi), { options: ['True', 'False'] });
                 } else if (t === 'passage') {
                     heading = `Q${n}. Read the text and answer the questions`;
                     body = `<div class="p-4 bg-gray-50 border border-gray-200 rounded-lg whitespace-pre-wrap leading-relaxed">${escapeHtml(q.passage)}</div>` +
@@ -743,7 +747,7 @@
             for (let qi = 0; qi < qs.length; qi++) {
                 const q = qs[qi];
                 const t = q.type || 'mcq';
-                if (t === 'mcq' && studentAnswers[qi] === undefined) return qi + 1;
+                if ((t === 'mcq' || t === 'tf') && studentAnswers[qi] === undefined) return qi + 1;
                 if (t === 'passage' && (q.questions || []).some((sq, si) => studentAnswers[`${qi}-${si}`] === undefined)) return qi + 1;
                 if ((t === 'match' || t === 'link') && Object.keys(studentAnswers[qi] || {}).length < q.pairs.length) return qi + 1;
             }
@@ -759,6 +763,9 @@
                 if (t === 'mcq') {
                     total++;
                     if (studentAnswers[qi] === parseInt(q.correctIndex)) score++;
+                } else if (t === 'tf') {
+                    total++;
+                    if (studentAnswers[qi] === (q.correct ? 0 : 1)) score++;
                 } else if (t === 'passage') {
                     (q.questions || []).forEach((sq, si) => {
                         total++;
@@ -873,6 +880,19 @@
                     <p class="text-xs text-gray-500 mb-2">Type the items in the CORRECT order. Students will see them shuffled.</p>
                     <div class="row-list space-y-2">${itemRowHtml()}${itemRowHtml()}${itemRowHtml()}${itemRowHtml()}</div>
                     <button type="button" onclick="window.adminAddRow(this, 'item')" class="add-q-btn mt-3">+ Add item</button>`;
+            } else if (type === 'tf') {
+                const tfId = newId();
+                inner = `
+                    <input type="text" class="q-text-input w-full px-3 py-2 border rounded mb-2 bg-white" placeholder="Statement (e.g. The Earth is flat)">
+                    <p class="text-xs text-gray-500 mb-2">Select whether the statement is true or false.</p>
+                    <div class="flex gap-3">
+                        <label class="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg bg-white cursor-pointer">
+                            <input type="radio" class="tf-radio w-4 h-4" name="tf-${tfId}" value="true"> True
+                        </label>
+                        <label class="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg bg-white cursor-pointer">
+                            <input type="radio" class="tf-radio w-4 h-4" name="tf-${tfId}" value="false"> False
+                        </label>
+                    </div>`;
             } else {
                 const hint = type === 'match'
                     ? 'Students will pick the match for each left item from a dropdown.'
@@ -900,7 +920,7 @@
             if (type === 'passage') window.adminAddSubQuestion(block);
         };
 
-        const Q_TYPE_LABELS = { mcq: 'Multiple choice', passage: 'Reading passage', reorder: 'Reordering', match: 'Matching', link: 'Linking' };
+        const Q_TYPE_LABELS = { mcq: 'Multiple choice', passage: 'Reading passage', reorder: 'Reordering', match: 'Matching', link: 'Linking', tf: 'True / False' };
 
         function newId() {
             return Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36);
@@ -1028,6 +1048,14 @@
                 const items = Array.from(b.querySelectorAll('.item-input')).map(i => i.value.trim()).filter(Boolean);
                 if (items.length < 2) return { error: `Question ${n} needs at least 2 items to reorder.` };
                 return { data: { type: 'reorder', text, items } };
+            }
+
+            if (type === 'tf') {
+                const text = b.querySelector('.q-text-input').value.trim();
+                if (!text) return { error: `Question ${n} needs a statement.` };
+                const checked = b.querySelector('.tf-radio:checked');
+                if (!checked) return { error: `Select true or false for question ${n}.` };
+                return { data: { type: 'tf', text, correct: checked.value === 'true' } };
             }
 
             // match / link
