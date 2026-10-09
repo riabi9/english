@@ -29,6 +29,8 @@
         .editor-content:empty:before { content: attr(data-placeholder); color: #9ca3af; pointer-events: none; display: block; }
         .toolbar-btn { padding: 4px 8px; border-radius: 4px; background: #f9fafb; color: #374151; font-weight: 600; font-size: 14px; cursor: pointer; border: 1px solid #d1d5db; transition: background 0.2s; }
         .toolbar-btn:hover { background: #e5e7eb; }
+        .add-q-btn { font-size: 14px; background: #eef2ff; color: #4338ca; font-weight: 500; padding: 6px 12px; border-radius: 6px; border: 1px solid #c7d2fe; cursor: pointer; transition: background 0.2s; }
+        .add-q-btn:hover { background: #e0e7ff; }
     </style>
 </head>
 <body class="text-gray-800 h-screen flex flex-col overflow-hidden relative">
@@ -163,7 +165,7 @@
             <!-- Admin: Exercises Tab -->
             <div id="admin-exercises-container" class="hidden fade-in space-y-6">
                 <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-                    <h3 class="text-lg font-bold mb-4">Create MCQ Exercise</h3>
+                    <h3 class="text-lg font-bold mb-4">Create Exercise</h3>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                         <input type="text" id="admin-ex-title" class="px-4 py-2 border border-gray-300 rounded-lg" placeholder="Exercise Title">
                         <select id="admin-ex-class" class="dynamic-class-select px-4 py-2 border border-gray-300 rounded-lg">
@@ -171,11 +173,16 @@
                         </select>
                     </div>
                     <div class="border-t border-gray-200 pt-4 mb-4">
-                        <div class="flex justify-between items-center mb-4">
-                            <h4 class="font-semibold text-gray-800">Questions</h4>
-                            <button onclick="window.adminAddQuestionBlock()" class="text-sm bg-indigo-50 text-indigo-700 font-medium py-1.5 px-3 rounded border border-indigo-200">
-                                + Add Question
-                            </button>
+                        <div class="mb-4">
+                            <h4 class="font-semibold text-gray-800 mb-2">Questions</h4>
+                            <div class="flex flex-wrap gap-2">
+                                <button type="button" onclick="window.adminAddQuestionBlock('mcq')" class="add-q-btn">+ Multiple choice</button>
+                                <button type="button" onclick="window.adminAddQuestionBlock('passage')" class="add-q-btn">+ Reading passage</button>
+                                <button type="button" onclick="window.adminAddQuestionBlock('reorder')" class="add-q-btn">+ Reordering</button>
+                                <button type="button" onclick="window.adminAddQuestionBlock('match')" class="add-q-btn">+ Matching</button>
+                                <button type="button" onclick="window.adminAddQuestionBlock('link')" class="add-q-btn">+ Linking</button>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-2">Scoring: 1 point per multiple-choice question (and per question inside a passage), 1 point per correct pair in matching/linking, and 1 point for a fully correct reordering.</p>
                         </div>
                         <div id="admin-questions-list" class="space-y-4"></div>
                     </div>
@@ -525,7 +532,9 @@
             if (!ex) return;
             activeExerciseData = ex;
             studentAnswers = {};
-            
+            rightOrder = {};
+            linkSelected = {};
+
             document.getElementById('student-exercises-container').classList.add('hidden');
             document.getElementById('active-exercise-view').classList.remove('hidden');
             document.getElementById('active-exercise-title').textContent = ex.title;
@@ -533,21 +542,51 @@
             document.getElementById('submission-error').classList.add('hidden');
             document.getElementById('submission-success').classList.add('hidden');
 
-            const qContainer = document.getElementById('questions-container');
-            qContainer.innerHTML = '';
-            
-            ex.questions.forEach((q, qIdx) => {
-                let optsHtml = q.options.map((opt, oIdx) => `
-                    <div class="mcq-option p-3 border border-gray-300 rounded-lg cursor-pointer bg-gray-50 mt-2" onclick="window.selectOption(${qIdx}, ${oIdx}, this)">
-                        ${opt}
-                    </div>
-                `).join('');
-                
-                qContainer.innerHTML += `
+            // Starting state for the interactive question types
+            ex.questions.forEach((q, qi) => {
+                const t = q.type || 'mcq';
+                if (t === 'reorder') studentAnswers[qi] = shuffledIndices(q.items.length);
+                if (t === 'match' || t === 'link') {
+                    studentAnswers[qi] = {};
+                    rightOrder[qi] = shuffledIndices(q.pairs.length);
+                    linkSelected[qi] = null;
+                }
+            });
+
+            document.getElementById('questions-container').innerHTML = ex.questions.map((q, qi) => {
+                const t = q.type || 'mcq';
+                const n = qi + 1;
+                let heading = '';
+                let body = '';
+
+                if (t === 'mcq') {
+                    heading = `Q${n}. ${escapeHtml(q.text)}`;
+                    body = mcqOptionsHtml(String(qi), q);
+                } else if (t === 'passage') {
+                    heading = `Q${n}. Read the text and answer the questions`;
+                    body = `<div class="p-4 bg-gray-50 border border-gray-200 rounded-lg whitespace-pre-wrap leading-relaxed">${escapeHtml(q.passage)}</div>` +
+                        (q.questions || []).map((sq, si) => `
+                            <div class="mt-5">
+                                <p class="font-medium mb-2">${n}.${si + 1} ${escapeHtml(sq.text)}</p>
+                                ${mcqOptionsHtml(`${qi}-${si}`, sq)}
+                            </div>`).join('');
+                } else {
+                    heading = `Q${n}. ${escapeHtml(q.text)}`;
+                    body = `<div id="qbody-${qi}"></div>`;
+                }
+
+                return `
                     <div class="bg-white p-5 rounded-xl border border-gray-200">
-                        <h4 class="font-semibold mb-3">Q${qIdx + 1}. ${q.text}</h4>
-                        <div class="space-y-2" id="group-${qIdx}">${optsHtml}</div>
+                        <h4 class="font-semibold mb-3">${heading}</h4>
+                        ${body}
                     </div>`;
+            }).join('');
+
+            ex.questions.forEach((q, qi) => {
+                const t = q.type || 'mcq';
+                if (t === 'reorder') renderReorder(qi);
+                else if (t === 'match') renderMatch(qi);
+                else if (t === 'link') renderLink(qi);
             });
         };
 
@@ -556,36 +595,210 @@
             document.getElementById('active-exercise-view').classList.add('hidden');
         };
 
-        window.selectOption = function(qIndex, optIndex, el) {
-            studentAnswers[qIndex] = optIndex;
-            const group = document.getElementById(`group-${qIndex}`);
+        let rightOrder = {};     // qi -> shuffled order of the right-hand items (match / link)
+        let linkSelected = {};   // qi -> left item currently selected (link)
+        const LINK_COLORS = ['#4f46e5', '#059669', '#d97706', '#db2777', '#0891b2', '#7c3aed', '#dc2626', '#65a30d'];
+
+        function shuffledIndices(n) {
+            const arr = Array.from({ length: n }, (_, i) => i);
+            if (n < 2) return arr;
+            let tries = 0;
+            do {
+                for (let i = n - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [arr[i], arr[j]] = [arr[j], arr[i]];
+                }
+                tries++;
+            } while (arr.every((v, i) => v === i) && tries < 10);
+            return arr;
+        }
+
+        // ---- Multiple choice (also used for the questions inside a reading passage) ----
+
+        function mcqOptionsHtml(key, q) {
+            return `<div class="space-y-2" id="group-${key}">` + q.options.map((opt, oIdx) => `
+                <div class="mcq-option p-3 border border-gray-300 rounded-lg cursor-pointer bg-gray-50" onclick="window.selectOption('${key}', ${oIdx}, this)">
+                    ${escapeHtml(opt)}
+                </div>`).join('') + `</div>`;
+        }
+
+        window.selectOption = function(key, optIndex, el) {
+            studentAnswers[key] = optIndex;
+            const group = document.getElementById(`group-${key}`);
             group.querySelectorAll('.mcq-option').forEach(opt => opt.classList.remove('mcq-selected'));
             el.classList.add('mcq-selected');
         };
+
+        // ---- Reordering ----
+
+        function renderReorder(qi) {
+            const q = activeExerciseData.questions[qi];
+            const order = studentAnswers[qi];
+            const last = order.length - 1;
+            document.getElementById(`qbody-${qi}`).innerHTML =
+                `<p class="text-xs text-gray-500 mb-1">Use the arrows to put the items in the correct order.</p>` +
+                order.map((itemIdx, pos) => `
+                    <div class="flex items-center gap-3 p-3 mt-2 border border-gray-300 rounded-lg bg-gray-50">
+                        <span class="w-6 h-6 flex-shrink-0 rounded-full bg-indigo-100 text-indigo-700 text-xs font-bold flex items-center justify-center">${pos + 1}</span>
+                        <span class="flex-1">${escapeHtml(q.items[itemIdx])}</span>
+                        <button type="button" onclick="window.moveItem(${qi}, ${pos}, -1)" ${pos === 0 ? 'disabled' : ''} class="px-2 py-1 border border-gray-300 rounded bg-white hover:bg-indigo-50 disabled:opacity-30 disabled:cursor-not-allowed" aria-label="Move up">&uarr;</button>
+                        <button type="button" onclick="window.moveItem(${qi}, ${pos}, 1)" ${pos === last ? 'disabled' : ''} class="px-2 py-1 border border-gray-300 rounded bg-white hover:bg-indigo-50 disabled:opacity-30 disabled:cursor-not-allowed" aria-label="Move down">&darr;</button>
+                    </div>`).join('');
+        }
+
+        window.moveItem = function(qi, pos, dir) {
+            const order = studentAnswers[qi];
+            const target = pos + dir;
+            if (target < 0 || target >= order.length) return;
+            [order[pos], order[target]] = [order[target], order[pos]];
+            renderReorder(qi);
+        };
+
+        // ---- Matching (dropdowns) ----
+
+        function renderMatch(qi) {
+            const q = activeExerciseData.questions[qi];
+            const ans = studentAnswers[qi];
+            document.getElementById(`qbody-${qi}`).innerHTML = q.pairs.map((p, i) => `
+                <div class="flex flex-col sm:flex-row sm:items-center gap-2 p-3 mt-2 bg-gray-50 border border-gray-200 rounded-lg">
+                    <span class="sm:w-1/2 font-medium">${escapeHtml(p.left)}</span>
+                    <select onchange="window.setMatch(${qi}, ${i}, this.value)" class="sm:w-1/2 px-3 py-2 border border-gray-300 rounded-lg bg-white">
+                        <option value="">-- Choose --</option>
+                        ${rightOrder[qi].map(ri => `<option value="${ri}" ${ans[i] === ri ? 'selected' : ''}>${escapeHtml(q.pairs[ri].right)}</option>`).join('')}
+                    </select>
+                </div>`).join('');
+        }
+
+        window.setMatch = function(qi, leftIdx, value) {
+            if (value === '') delete studentAnswers[qi][leftIdx];
+            else studentAnswers[qi][leftIdx] = Number(value);
+        };
+
+        // ---- Linking (click an item on the left, then its match on the right) ----
+
+        function renderLink(qi) {
+            const q = activeExerciseData.questions[qi];
+            const ans = studentAnswers[qi];
+            const sel = linkSelected[qi];
+            const rightToLeft = {};
+            Object.keys(ans).forEach(l => { rightToLeft[ans[l]] = Number(l); });
+
+            const badge = (num, color) => `<span class="w-6 h-6 flex-shrink-0 rounded-full text-xs font-bold flex items-center justify-center ${color ? 'text-white' : 'bg-gray-200 text-gray-600'}" ${color ? `style="background:${color}"` : ''}>${num}</span>`;
+            const itemCls = 'w-full text-left flex items-center gap-2 p-3 border-2 border-gray-300 rounded-lg bg-gray-50 hover:bg-indigo-50 transition-colors';
+
+            const leftHtml = q.pairs.map((p, i) => {
+                const linked = ans[i] !== undefined;
+                const color = LINK_COLORS[i % LINK_COLORS.length];
+                const style = linked ? `style="border-color:${color};background:${color}22"` : '';
+                const ring = sel === i ? ' ring-2 ring-indigo-500 border-indigo-500' : '';
+                return `<button type="button" class="${itemCls}${ring}" ${style} onclick="window.linkClickLeft(${qi}, ${i})">${badge(i + 1, linked ? color : null)}<span class="flex-1">${escapeHtml(p.left)}</span></button>`;
+            }).join('');
+
+            const rightHtml = rightOrder[qi].map(ri => {
+                const l = rightToLeft[ri];
+                const linked = l !== undefined;
+                const color = linked ? LINK_COLORS[l % LINK_COLORS.length] : null;
+                const style = linked ? `style="border-color:${color};background:${color}22"` : '';
+                return `<button type="button" class="${itemCls}" ${style} onclick="window.linkClickRight(${qi}, ${ri})">${linked ? badge(l + 1, color) : ''}<span class="flex-1">${escapeHtml(q.pairs[ri].right)}</span></button>`;
+            }).join('');
+
+            document.getElementById(`qbody-${qi}`).innerHTML = `
+                <p class="text-xs text-gray-500 mb-2">Click an item on the left, then click its match on the right. Click a linked item to unlink it.</p>
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="space-y-2">${leftHtml}</div>
+                    <div class="space-y-2">${rightHtml}</div>
+                </div>`;
+        }
+
+        window.linkClickLeft = function(qi, i) {
+            const ans = studentAnswers[qi];
+            if (ans[i] !== undefined) {
+                delete ans[i];
+                linkSelected[qi] = i;
+            } else {
+                linkSelected[qi] = (linkSelected[qi] === i) ? null : i;
+            }
+            renderLink(qi);
+        };
+
+        window.linkClickRight = function(qi, ri) {
+            const ans = studentAnswers[qi];
+            const sel = linkSelected[qi];
+            const existing = Object.keys(ans).find(l => ans[l] === ri);
+            if (sel !== null && sel !== undefined) {
+                if (existing !== undefined) delete ans[existing];
+                ans[sel] = ri;
+                linkSelected[qi] = null;
+            } else if (existing !== undefined) {
+                delete ans[existing];
+            }
+            renderLink(qi);
+        };
+
+        // ---- Checking and scoring ----
+
+        // Returns the number of the first unanswered question, or 0 if everything is answered
+        function firstUnanswered() {
+            const qs = activeExerciseData.questions;
+            for (let qi = 0; qi < qs.length; qi++) {
+                const q = qs[qi];
+                const t = q.type || 'mcq';
+                if (t === 'mcq' && studentAnswers[qi] === undefined) return qi + 1;
+                if (t === 'passage' && (q.questions || []).some((sq, si) => studentAnswers[`${qi}-${si}`] === undefined)) return qi + 1;
+                if ((t === 'match' || t === 'link') && Object.keys(studentAnswers[qi] || {}).length < q.pairs.length) return qi + 1;
+            }
+            return 0;
+        }
+
+        // 1 point per multiple-choice question, 1 per question inside a passage,
+        // 1 per correct pair in matching/linking, 1 for a fully correct reordering
+        function computeScore() {
+            let score = 0, total = 0;
+            activeExerciseData.questions.forEach((q, qi) => {
+                const t = q.type || 'mcq';
+                if (t === 'mcq') {
+                    total++;
+                    if (studentAnswers[qi] === parseInt(q.correctIndex)) score++;
+                } else if (t === 'passage') {
+                    (q.questions || []).forEach((sq, si) => {
+                        total++;
+                        if (studentAnswers[`${qi}-${si}`] === parseInt(sq.correctIndex)) score++;
+                    });
+                } else if (t === 'reorder') {
+                    total++;
+                    if (studentAnswers[qi].every((v, i) => v === i)) score++;
+                } else if (t === 'match' || t === 'link') {
+                    q.pairs.forEach((p, i) => {
+                        total++;
+                        if (studentAnswers[qi][i] === i) score++;
+                    });
+                }
+            });
+            return { score, total };
+        }
 
         window.submitExercise = async function() {
             if(!isDbConnected) { alert("Database not connected. Submissions are disabled."); return; }
             const name = document.getElementById('student-name-input').value.trim();
             const errEl = document.getElementById('submission-error');
-            
+
             if (!name) { errEl.textContent = "Please enter your name."; errEl.classList.remove('hidden'); return; }
-            if (Object.keys(studentAnswers).length < activeExerciseData.questions.length) {
-                errEl.textContent = "Please answer all questions."; errEl.classList.remove('hidden'); return;
+            const missing = firstUnanswered();
+            if (missing) {
+                errEl.textContent = `Please answer all questions (question ${missing} is not finished).`;
+                errEl.classList.remove('hidden');
+                return;
             }
 
-            let score = 0;
-            activeExerciseData.questions.forEach((q, idx) => {
-                if (studentAnswers[idx] === parseInt(q.correctIndex)) score++;
-            });
-
+            const { score, total } = computeScore();
             errEl.classList.add('hidden');
-            
+
             const payload = {
                 student_name: name,
                 class_name: currentStudentClass,
                 exercise_title: activeExerciseData.title,
                 score: score,
-                total: activeExerciseData.questions.length
+                total: total
             };
 
             const { error } = await supabaseClient.from('portal_submissions').insert([payload]);
@@ -597,7 +810,6 @@
             }
         };
 
-        
         window.adminAddClass = async function() {
             if(!isDbConnected) return alert("Database not connected.");
             const name = document.getElementById('new-class-input').value.trim();
@@ -643,29 +855,122 @@
             }
         };
 
-        window.adminAddQuestionBlock = function() {
+        window.adminAddQuestionBlock = function(type) {
+            if (typeof type !== 'string' || !Q_TYPE_LABELS[type]) type = 'mcq';
             const container = document.getElementById('admin-questions-list');
-            const qId = Date.now() + Math.floor(Math.random() * 1000);
+            let inner = '';
+
+            if (type === 'mcq') {
+                inner = mcqFieldsHtml('Question Text');
+            } else if (type === 'passage') {
+                inner = `
+                    <textarea class="passage-text w-full px-3 py-2 border rounded mb-3 bg-white" rows="5" placeholder="Write or paste the text students will read..."></textarea>
+                    <div class="sub-q-list space-y-3"></div>
+                    <button type="button" onclick="window.adminAddSubQuestion(this)" class="add-q-btn mt-3">+ Add a question about this text</button>`;
+            } else if (type === 'reorder') {
+                inner = `
+                    <input type="text" class="q-text-input w-full px-3 py-2 border rounded mb-2 bg-white" placeholder="Instruction (e.g. Put the sentences in the correct order)">
+                    <p class="text-xs text-gray-500 mb-2">Type the items in the CORRECT order. Students will see them shuffled.</p>
+                    <div class="row-list space-y-2">${itemRowHtml()}${itemRowHtml()}${itemRowHtml()}${itemRowHtml()}</div>
+                    <button type="button" onclick="window.adminAddRow(this, 'item')" class="add-q-btn mt-3">+ Add item</button>`;
+            } else {
+                const hint = type === 'match'
+                    ? 'Students will pick the match for each left item from a dropdown.'
+                    : 'Students will click an item on the left, then its match on the right.';
+                inner = `
+                    <input type="text" class="q-text-input w-full px-3 py-2 border rounded mb-2 bg-white" placeholder="Instruction (e.g. Match each word with its definition)">
+                    <p class="text-xs text-gray-500 mb-2">Write each item and its correct match on the same row. The right-hand side is shuffled for students. ${hint}</p>
+                    <div class="row-list space-y-2">${pairRowHtml()}${pairRowHtml()}${pairRowHtml()}${pairRowHtml()}</div>
+                    <button type="button" onclick="window.adminAddRow(this, 'pair')" class="add-q-btn mt-3">+ Add pair</button>`;
+            }
+
             // insertAdjacentHTML keeps what is already typed/selected in the other questions
             container.insertAdjacentHTML('beforeend', `
-                <div class="p-4 bg-gray-50 border border-gray-200 rounded-lg relative admin-q-block" data-qid="${qId}">
-                    <button type="button" onclick="this.parentElement.remove()" class="absolute top-2 right-2 text-red-500 font-bold">&times;</button>
-                    <input type="text" class="q-text-input w-full px-3 py-2 border rounded mb-2" placeholder="Question Text">
+                <div class="p-4 bg-gray-50 border border-gray-200 rounded-lg relative admin-q-block" data-type="${type}">
+                    <div class="flex justify-between items-center mb-3">
+                        <span class="text-xs font-semibold uppercase tracking-wide text-indigo-700 bg-indigo-50 border border-indigo-200 rounded px-2 py-0.5">${Q_TYPE_LABELS[type]}</span>
+                        <button type="button" onclick="this.closest('.admin-q-block').remove()" class="text-red-500 hover:text-red-700 font-bold text-xl leading-none" title="Remove question">&times;</button>
+                    </div>
+                    ${inner}
+                </div>`);
+
+            const block = container.lastElementChild;
+            const rowList = block.querySelector('.row-list');
+            if (rowList) renumberRows(rowList);
+            if (type === 'passage') window.adminAddSubQuestion(block);
+        };
+
+        const Q_TYPE_LABELS = { mcq: 'Multiple choice', passage: 'Reading passage', reorder: 'Reordering', match: 'Matching', link: 'Linking' };
+
+        function newId() {
+            return Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36);
+        }
+
+        function mcqFieldsHtml(placeholder) {
+            const id = newId();
+            return `
+                <div class="mcq-edit">
+                    <input type="text" class="q-text-input w-full px-3 py-2 border rounded mb-2 bg-white" placeholder="${placeholder}">
                     <p class="text-xs text-gray-500 mb-2">Fill in the options, then select the circle next to the correct answer.</p>
                     <div class="space-y-2">
                         ${[0,1,2,3].map(i => `
                             <div class="opt-row flex items-center gap-3 px-3 py-1.5 border border-transparent rounded-lg">
-                                <input type="radio" name="correct-${qId}" value="${i}" class="w-4 h-4 cursor-pointer" onchange="window.highlightCorrect(this)" title="Mark as correct answer">
+                                <input type="radio" name="correct-${id}" value="${i}" class="w-4 h-4 cursor-pointer" onchange="window.highlightCorrect(this)" title="Mark as correct answer">
                                 <input type="text" class="opt-input flex-1 px-3 py-1.5 border rounded text-sm bg-white" placeholder="Option ${i+1}">
                             </div>
                         `).join('')}
                     </div>
+                </div>`;
+        }
+
+        function itemRowHtml() {
+            return `
+                <div class="edit-row flex items-center gap-2">
+                    <span class="row-num w-6 text-center text-sm text-gray-500"></span>
+                    <input type="text" class="item-input flex-1 min-w-0 px-3 py-1.5 border rounded text-sm bg-white" placeholder="Item">
+                    <button type="button" onclick="window.adminRemoveRow(this)" class="text-red-400 hover:text-red-600 font-bold text-lg leading-none px-1" title="Remove">&times;</button>
+                </div>`;
+        }
+
+        function pairRowHtml() {
+            return `
+                <div class="edit-row flex items-center gap-2">
+                    <span class="row-num w-6 text-center text-sm text-gray-500"></span>
+                    <input type="text" class="pair-left flex-1 min-w-0 px-3 py-1.5 border rounded text-sm bg-white" placeholder="Item">
+                    <span class="text-gray-400">&harr;</span>
+                    <input type="text" class="pair-right flex-1 min-w-0 px-3 py-1.5 border rounded text-sm bg-white" placeholder="Its match">
+                    <button type="button" onclick="window.adminRemoveRow(this)" class="text-red-400 hover:text-red-600 font-bold text-lg leading-none px-1" title="Remove">&times;</button>
+                </div>`;
+        }
+
+        function renumberRows(list) {
+            list.querySelectorAll('.row-num').forEach((el, i) => { el.textContent = i + 1; });
+        }
+
+        window.adminAddRow = function(btn, kind) {
+            const list = btn.closest('.admin-q-block').querySelector('.row-list');
+            list.insertAdjacentHTML('beforeend', kind === 'pair' ? pairRowHtml() : itemRowHtml());
+            renumberRows(list);
+        };
+
+        window.adminRemoveRow = function(btn) {
+            const list = btn.closest('.row-list');
+            btn.closest('.edit-row').remove();
+            renumberRows(list);
+        };
+
+        window.adminAddSubQuestion = function(el) {
+            const list = el.closest('.admin-q-block').querySelector('.sub-q-list');
+            list.insertAdjacentHTML('beforeend', `
+                <div class="sub-q-block relative p-3 pt-7 bg-white border border-gray-200 rounded-lg">
+                    <button type="button" onclick="this.parentElement.remove()" class="absolute top-1 right-2 text-red-400 hover:text-red-600 font-bold text-lg leading-none" title="Remove question">&times;</button>
+                    ${mcqFieldsHtml('Question about the text')}
                 </div>`);
         };
 
         window.highlightCorrect = function(radio) {
-            const block = radio.closest('.admin-q-block');
-            block.querySelectorAll('.opt-row').forEach(r => {
+            const wrap = radio.closest('.mcq-edit');
+            wrap.querySelectorAll('.opt-row').forEach(r => {
                 r.classList.remove('bg-green-50', 'border-green-400');
                 r.classList.add('border-transparent');
             });
@@ -673,6 +978,74 @@
             row.classList.remove('border-transparent');
             row.classList.add('bg-green-50', 'border-green-400');
         };
+
+        // ---- Reading the builder back into data (returns { data } or { error }) ----
+
+        function collectMcq(el, label) {
+            const text = el.querySelector('.q-text-input').value.trim();
+            const rawOpts = Array.from(el.querySelectorAll('.opt-input')).map(i => i.value.trim());
+            const checked = el.querySelector('input[type="radio"]:checked');
+
+            // Drop empty options but keep the correct answer pointing at the right one
+            const options = [];
+            let correctIndex = -1;
+            rawOpts.forEach((v, i) => {
+                if (!v) return;
+                if (checked && Number(checked.value) === i) correctIndex = options.length;
+                options.push(v);
+            });
+
+            if (!text || options.length < 2) return { error: `${label} needs text and at least 2 options.` };
+            if (!checked) return { error: `Select the correct answer for ${label}.` };
+            if (correctIndex === -1) return { error: `The option marked correct in ${label} is empty.` };
+            return { data: { type: 'mcq', text, options, correctIndex: String(correctIndex) } };
+        }
+
+        function collectBlock(b, n) {
+            const type = b.dataset.type || 'mcq';
+            const label = `question ${n}`;
+
+            if (type === 'mcq') {
+                return collectMcq(b.querySelector('.mcq-edit'), label);
+            }
+
+            if (type === 'passage') {
+                const passage = b.querySelector('.passage-text').value.trim();
+                if (!passage) return { error: `Write the text students should read in question ${n}.` };
+                const subs = Array.from(b.querySelectorAll('.sub-q-block .mcq-edit'));
+                if (subs.length === 0) return { error: `Add at least one question about the text in question ${n}.` };
+                const questions = [];
+                for (let i = 0; i < subs.length; i++) {
+                    const r = collectMcq(subs[i], `question ${n}.${i + 1}`);
+                    if (r.error) return r;
+                    questions.push(r.data);
+                }
+                return { data: { type: 'passage', passage, questions } };
+            }
+
+            if (type === 'reorder') {
+                const text = b.querySelector('.q-text-input').value.trim() || 'Put the items in the correct order.';
+                const items = Array.from(b.querySelectorAll('.item-input')).map(i => i.value.trim()).filter(Boolean);
+                if (items.length < 2) return { error: `Question ${n} needs at least 2 items to reorder.` };
+                return { data: { type: 'reorder', text, items } };
+            }
+
+            // match / link
+            const defaultText = type === 'match'
+                ? 'Match each item with the correct answer.'
+                : 'Link each item on the left to its match on the right.';
+            const text = b.querySelector('.q-text-input').value.trim() || defaultText;
+            const pairs = [];
+            for (const row of b.querySelectorAll('.edit-row')) {
+                const left = row.querySelector('.pair-left').value.trim();
+                const right = row.querySelector('.pair-right').value.trim();
+                if (!left && !right) continue;
+                if (!left || !right) return { error: `Every pair in question ${n} needs both sides filled in.` };
+                pairs.push({ left, right });
+            }
+            if (pairs.length < 2) return { error: `Question ${n} needs at least 2 pairs.` };
+            return { data: { type, text, pairs } };
+        }
 
         window.adminPublishExercise = async function() {
             if(!isDbConnected) return alert("Database not connected.");
@@ -685,51 +1058,33 @@
             }
 
             const blocks = document.querySelectorAll('.admin-q-block');
-            let questions = [];
-            let valid = true;
-
+            const questions = [];
             let errorMsg = "";
 
-            blocks.forEach((b, n) => {
-                const text = b.querySelector('.q-text-input').value.trim();
-                const rawOpts = Array.from(b.querySelectorAll('.opt-input')).map(i => i.value.trim());
-                const checked = b.querySelector('input[type="radio"]:checked');
+            for (let i = 0; i < blocks.length; i++) {
+                const r = collectBlock(blocks[i], i + 1);
+                if (r.error) { errorMsg = r.error; break; }
+                questions.push(r.data);
+            }
 
-                // Drop empty options but keep the correct answer pointing at the right one
-                const options = [];
-                let correctIndex = -1;
-                rawOpts.forEach((v, i) => {
-                    if (!v) return;
-                    if (checked && Number(checked.value) === i) correctIndex = options.length;
-                    options.push(v);
-                });
-
-                if (!text || options.length < 2) {
-                    valid = false;
-                    if (!errorMsg) errorMsg = `Question ${n + 1} needs text and at least 2 options.`;
-                } else if (!checked) {
-                    valid = false;
-                    if (!errorMsg) errorMsg = `Select the correct answer for question ${n + 1}.`;
-                } else if (correctIndex === -1) {
-                    valid = false;
-                    if (!errorMsg) errorMsg = `The option you marked correct in question ${n + 1} is empty.`;
-                }
-                questions.push({ text, options, correctIndex: String(correctIndex) });
-            });
-
-            if(!valid || questions.length === 0) {
-                msgEl.textContent = errorMsg || "Add questions with at least 2 options."; msgEl.className = "ml-3 text-sm text-red-600 block"; return;
+            if (errorMsg || questions.length === 0) {
+                msgEl.textContent = errorMsg || "Add at least one question.";
+                msgEl.className = "ml-3 text-sm text-red-600 block";
+                return;
             }
 
             const { error } = await supabaseClient.from('portal_exercises').insert([{ title, target_class: targetClass, questions }]);
-            if(!error) {
-                msgEl.textContent = "Exercise Published!"; msgEl.className = "ml-3 text-sm text-green-600 block";
-                document.getElementById('admin-ex-title').value = '';
-                document.getElementById('admin-questions-list').innerHTML = '';
-                window.adminAddQuestionBlock();
-                fetchAdminExercises();
-                setTimeout(() => msgEl.classList.add('hidden'), 3000);
+            if (error) {
+                msgEl.textContent = "Could not publish the exercise."; msgEl.className = "ml-3 text-sm text-red-600 block";
+                console.error(error);
+                return;
             }
+            msgEl.textContent = "Exercise Published!"; msgEl.className = "ml-3 text-sm text-green-600 block";
+            document.getElementById('admin-ex-title').value = '';
+            document.getElementById('admin-questions-list').innerHTML = '';
+            window.adminAddQuestionBlock('mcq');
+            fetchAdminExercises();
+            setTimeout(() => msgEl.classList.add('hidden'), 3000);
         };
 
         function renderAdminResults() {
