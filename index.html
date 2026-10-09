@@ -645,20 +645,33 @@
 
         window.adminAddQuestionBlock = function() {
             const container = document.getElementById('admin-questions-list');
-            const qId = Date.now();
-            container.innerHTML += `
+            const qId = Date.now() + Math.floor(Math.random() * 1000);
+            // insertAdjacentHTML keeps what is already typed/selected in the other questions
+            container.insertAdjacentHTML('beforeend', `
                 <div class="p-4 bg-gray-50 border border-gray-200 rounded-lg relative admin-q-block" data-qid="${qId}">
-                    <button onclick="this.parentElement.remove()" class="absolute top-2 right-2 text-red-500 font-bold">&times;</button>
-                    <input type="text" class="q-text-input w-full px-3 py-2 border rounded mb-3" placeholder="Question Text">
-                    <div class="space-y-2 ml-4">
+                    <button type="button" onclick="this.parentElement.remove()" class="absolute top-2 right-2 text-red-500 font-bold">&times;</button>
+                    <input type="text" class="q-text-input w-full px-3 py-2 border rounded mb-2" placeholder="Question Text">
+                    <p class="text-xs text-gray-500 mb-2">Fill in the options, then select the circle next to the correct answer.</p>
+                    <div class="space-y-2">
                         ${[0,1,2,3].map(i => `
-                            <div class="flex items-center gap-2">
-                                <input type="radio" name="correct-${qId}" value="${i}" ${i===0?'checked':''}>
-                                <input type="text" class="opt-input flex-1 px-3 py-1.5 border rounded text-sm" placeholder="Option ${i+1}">
+                            <div class="opt-row flex items-center gap-3 px-3 py-1.5 border border-transparent rounded-lg">
+                                <input type="radio" name="correct-${qId}" value="${i}" class="w-4 h-4 cursor-pointer" onchange="window.highlightCorrect(this)" title="Mark as correct answer">
+                                <input type="text" class="opt-input flex-1 px-3 py-1.5 border rounded text-sm bg-white" placeholder="Option ${i+1}">
                             </div>
                         `).join('')}
                     </div>
-                </div>`;
+                </div>`);
+        };
+
+        window.highlightCorrect = function(radio) {
+            const block = radio.closest('.admin-q-block');
+            block.querySelectorAll('.opt-row').forEach(r => {
+                r.classList.remove('bg-green-50', 'border-green-400');
+                r.classList.add('border-transparent');
+            });
+            const row = radio.closest('.opt-row');
+            row.classList.remove('border-transparent');
+            row.classList.add('bg-green-50', 'border-green-400');
         };
 
         window.adminPublishExercise = async function() {
@@ -675,16 +688,37 @@
             let questions = [];
             let valid = true;
 
-            blocks.forEach(b => {
+            let errorMsg = "";
+
+            blocks.forEach((b, n) => {
                 const text = b.querySelector('.q-text-input').value.trim();
-                const opts = Array.from(b.querySelectorAll('.opt-input')).map(i => i.value.trim()).filter(v => v);
-                const correctIndex = b.querySelector('input[type="radio"]:checked').value;
-                if(!text || opts.length < 2) valid = false;
-                questions.push({ text, options: opts, correctIndex });
+                const rawOpts = Array.from(b.querySelectorAll('.opt-input')).map(i => i.value.trim());
+                const checked = b.querySelector('input[type="radio"]:checked');
+
+                // Drop empty options but keep the correct answer pointing at the right one
+                const options = [];
+                let correctIndex = -1;
+                rawOpts.forEach((v, i) => {
+                    if (!v) return;
+                    if (checked && Number(checked.value) === i) correctIndex = options.length;
+                    options.push(v);
+                });
+
+                if (!text || options.length < 2) {
+                    valid = false;
+                    if (!errorMsg) errorMsg = `Question ${n + 1} needs text and at least 2 options.`;
+                } else if (!checked) {
+                    valid = false;
+                    if (!errorMsg) errorMsg = `Select the correct answer for question ${n + 1}.`;
+                } else if (correctIndex === -1) {
+                    valid = false;
+                    if (!errorMsg) errorMsg = `The option you marked correct in question ${n + 1} is empty.`;
+                }
+                questions.push({ text, options, correctIndex: String(correctIndex) });
             });
 
             if(!valid || questions.length === 0) {
-                msgEl.textContent = "Add questions with at least 2 options."; msgEl.className = "ml-3 text-sm text-red-600 block"; return;
+                msgEl.textContent = errorMsg || "Add questions with at least 2 options."; msgEl.className = "ml-3 text-sm text-red-600 block"; return;
             }
 
             const { error } = await supabaseClient.from('portal_exercises').insert([{ title, target_class: targetClass, questions }]);
