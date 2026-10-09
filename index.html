@@ -153,6 +153,11 @@
                     <button onclick="window.adminPublishLesson()" class="bg-indigo-600 text-white py-2 px-6 rounded-lg">Publish Lesson</button>
                     <span id="lesson-publish-msg" class="ml-3 text-sm font-medium hidden"></span>
                 </div>
+
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                    <h3 class="text-lg font-bold mb-4">Published Lessons</h3>
+                    <ul id="admin-lessons-list" class="divide-y divide-gray-200 bg-gray-50 border rounded-lg overflow-hidden"></ul>
+                </div>
             </div>
 
             <!-- Admin: Exercises Tab -->
@@ -176,6 +181,11 @@
                     </div>
                     <button onclick="window.adminPublishExercise()" class="bg-indigo-600 text-white py-2 px-6 rounded-lg">Publish Exercise</button>
                     <span id="ex-publish-msg" class="ml-3 text-sm font-medium hidden"></span>
+                </div>
+
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                    <h3 class="text-lg font-bold mb-4">Published Exercises</h3>
+                    <ul id="admin-exercises-list" class="divide-y divide-gray-200 bg-gray-50 border rounded-lg overflow-hidden"></ul>
                 </div>
             </div>
 
@@ -357,8 +367,77 @@
             }
         }
 
+        let adminLessons = [];
+        let adminExercises = [];
+
+        function escapeHtml(str) {
+            return String(str ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        }
+
+        async function fetchAdminLessons() {
+            if (!isDbConnected) return;
+            const { data, error } = await supabaseClient.from('portal_lessons').select('id, title, target_class, created_at').order('created_at', { ascending: false });
+            if (!error && data) { adminLessons = data; renderAdminLessons(); }
+        }
+
+        async function fetchAdminExercises() {
+            if (!isDbConnected) return;
+            const { data, error } = await supabaseClient.from('portal_exercises').select('id, title, target_class, questions, created_at').order('created_at', { ascending: false });
+            if (!error && data) { adminExercises = data; renderAdminExercises(); }
+        }
+
+        function renderAdminLessons() {
+            const list = document.getElementById('admin-lessons-list');
+            if (adminLessons.length === 0) {
+                list.innerHTML = '<li class="px-4 py-3 bg-white text-sm text-gray-500">No lessons published yet.</li>';
+                return;
+            }
+            list.innerHTML = adminLessons.map(l => `
+                <li class="flex justify-between items-center px-4 py-3 bg-white gap-4">
+                    <div>
+                        <span class="font-medium">${escapeHtml(l.title)}</span>
+                        <span class="block text-xs text-gray-500">${escapeHtml(l.target_class)}</span>
+                    </div>
+                    <button onclick="window.adminDeleteLesson('${l.id}')" class="text-red-500 text-sm hover:underline">Delete</button>
+                </li>
+            `).join('');
+        }
+
+        function renderAdminExercises() {
+            const list = document.getElementById('admin-exercises-list');
+            if (adminExercises.length === 0) {
+                list.innerHTML = '<li class="px-4 py-3 bg-white text-sm text-gray-500">No exercises published yet.</li>';
+                return;
+            }
+            list.innerHTML = adminExercises.map(ex => `
+                <li class="flex justify-between items-center px-4 py-3 bg-white gap-4">
+                    <div>
+                        <span class="font-medium">${escapeHtml(ex.title)}</span>
+                        <span class="block text-xs text-gray-500">${escapeHtml(ex.target_class)} &bull; ${(ex.questions || []).length} questions</span>
+                    </div>
+                    <button onclick="window.adminDeleteExercise('${ex.id}')" class="text-red-500 text-sm hover:underline">Delete</button>
+                </li>
+            `).join('');
+        }
+
+        window.adminDeleteLesson = async function(id) {
+            if (!isDbConnected || !confirm("Delete this lesson?")) return;
+            const { error } = await supabaseClient.from('portal_lessons').delete().eq('id', id);
+            if (error) { alert("Could not delete the lesson."); console.error(error); return; }
+            fetchAdminLessons();
+        };
+
+        window.adminDeleteExercise = async function(id) {
+            if (!isDbConnected || !confirm("Delete this exercise?")) return;
+            const { error } = await supabaseClient.from('portal_exercises').delete().eq('id', id);
+            if (error) { alert("Could not delete the exercise."); console.error(error); return; }
+            fetchAdminExercises();
+        };
+
         async function loadAllAdminData() {
             fetchClasses();
+            fetchAdminLessons();
+            fetchAdminExercises();
             if(isDbConnected) {
                 const { data } = await supabaseClient.from('portal_submissions').select('*').order('created_at', { ascending: false });
                 if(data) {
@@ -559,6 +638,7 @@
                 msgEl.textContent = "Lesson Published!"; msgEl.className = "ml-3 text-sm text-green-600 block";
                 document.getElementById('admin-lesson-title').value = '';
                 document.getElementById('admin-lesson-content').innerHTML = '';
+                fetchAdminLessons();
                 setTimeout(() => msgEl.classList.add('hidden'), 3000);
             }
         };
@@ -613,6 +693,7 @@
                 document.getElementById('admin-ex-title').value = '';
                 document.getElementById('admin-questions-list').innerHTML = '';
                 window.adminAddQuestionBlock();
+                fetchAdminExercises();
                 setTimeout(() => msgEl.classList.add('hidden'), 3000);
             }
         };
