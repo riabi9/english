@@ -262,10 +262,8 @@
         </div>
     </main>
 
-    <footer class="bg-white border-t border-gray-200 py-4 mt-auto">
-        <div class="max-w-7xl mx-auto px-4 text-center text-sm text-gray-500">
-            © Classroom Portal • All rights reserved <span onclick="showAdminLogin()" class="cursor-pointer hover:text-black hover:font-bold select-none p-2 -m-2" title="Admin Login">.</span>
-        </div>
+    <footer class="text-center py-4 text-sm text-gray-500 bg-white border-t border-gray-200 z-10 relative flex-shrink-0">
+        © Classroom Portal • All rights reserved • <span onclick="showAdminLogin()" class="cursor-pointer hover:text-gray-800 px-2 select-none">.</span>
     </footer>
 
     <!-- Custom Modal for Admin Password -->
@@ -282,33 +280,21 @@
         </div>
     </div>
 
-    <!-- Edit Class Modal -->
-    <div id="edit-class-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 fade-in">
-        <div class="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6">
-            <h3 class="text-xl font-bold text-gray-900 mb-4">Edit Class Name</h3>
-            <input type="hidden" id="edit-class-id">
-            <input type="text" id="edit-class-input" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 mb-4" placeholder="Class Name">
-            <div class="flex justify-end gap-3">
-                <button onclick="closeEditClassModal()" class="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-lg">Cancel</button>
-                <button onclick="saveEditedClass()" class="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg">Save</button>
-            </div>
-        </div>
-    </div>
-
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         // Global Configuration
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'classroom-portal-app';
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
-            projectId: "demo-project", 
-        };
+        let firebaseConfig = {};
+        try {
+            firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : { projectId: "demo-project" };
+        } catch (e) {
+            console.warn("Could not parse firebase config");
+        }
 
-        const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
-        const auth = getAuth(app);
+        let app, db, auth;
 
         // State Data
         let globalClasses = [];
@@ -321,11 +307,7 @@
         let activeExerciseData = null;
         let studentAnswers = {};
 
-        // STRCIT PATHS (Rule 1)
-        const getPublicPath = (colName) => collection(db, 'artifacts', appId, 'public', 'data', colName);
-        const getDocPath = (colName, id) => doc(db, 'artifacts', appId, 'public', 'data', colName, id);
-
-        // Expose functions for inline HTML handlers
+        // Expose functions for inline HTML handlers EARLY so UI doesn't break if Firebase fails
         window.setRole = setRole;
         window.showAdminLogin = showAdminLogin;
         window.closeAdminLogin = closeAdminLogin;
@@ -340,18 +322,27 @@
         window.submitExercise = submitExercise;
         window.adminAddClass = adminAddClass;
         window.adminDeleteClass = adminDeleteClass;
-        window.openEditClassModal = openEditClassModal;
-        window.closeEditClassModal = closeEditClassModal;
-        window.saveEditedClass = saveEditedClass;
         window.adminPublishLesson = adminPublishLesson;
-        window.adminDeleteLesson = adminDeleteLesson;
         window.adminAddQuestionBlock = adminAddQuestionBlock;
         window.adminRemoveQuestionBlock = adminRemoveQuestionBlock;
         window.adminPublishExercise = adminPublishExercise;
         window.execCmd = execCmd;
 
+        const getPublicPath = (colName) => {
+            if(!db) throw new Error("Database not initialized");
+            return collection(db, 'artifacts', appId, 'public', 'data', colName);
+        };
+        const getDocPath = (colName, id) => {
+            if(!db) throw new Error("Database not initialized");
+            return doc(db, 'artifacts', appId, 'public', 'data', colName, id);
+        };
+
         async function initApp() {
             try {
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+
                 const token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
                 if (token) {
                     await signInWithCustomToken(auth, token);
@@ -360,7 +351,11 @@
                 }
                 setupRealtimeListeners();
             } catch (error) {
-                console.error("Auth Error:", error);
+                console.error("Firebase Error. Running in degraded UI mode:", error);
+                // Setup default mock class if offline
+                globalClasses = [{ id: 'offline-mock', name: 'Local Test Class', timestamp: Date.now() }];
+                renderClassSelects();
+                renderAdminClassesList();
             }
         }
 
