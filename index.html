@@ -355,24 +355,35 @@
             }
         }
 
+        // Students only get items that are not hidden. If the is_hidden column does not exist yet
+        // (portal-setup.sql not re-run), fall back to the plain query so students still see everything.
+        async function fetchStudentRows(table, className) {
+            const build = onlyVisible => {
+                let q = supabaseClient.from(table).select('*').order('created_at', { ascending: false });
+                if (className) q = q.eq('target_class', className);
+                if (onlyVisible) q = q.eq('is_hidden', false);
+                return q;
+            };
+            let res = await build(true);
+            if (res.error) res = await build(false);
+            if (res.error || !res.data) return null;
+            return res.data.filter(r => !r.is_hidden);
+        }
+
         async function fetchLessons(className = null) {
             if (!isDbConnected) return;
-            let query = supabaseClient.from('portal_lessons').select('*').order('created_at', { ascending: false });
-            if (className) query = query.eq('target_class', className);
-            const { data, error } = await query;
-            if (!error && data) {
-                globalLessons = data;
+            const rows = await fetchStudentRows('portal_lessons', className);
+            if (rows) {
+                globalLessons = rows;
                 renderStudentLessons();
             }
         }
 
         async function fetchExercises(className = null) {
             if (!isDbConnected) return;
-            let query = supabaseClient.from('portal_exercises').select('*').order('created_at', { ascending: false });
-            if (className) query = query.eq('target_class', className);
-            const { data, error } = await query;
-            if (!error && data) {
-                globalExercises = data;
+            const rows = await fetchStudentRows('portal_exercises', className);
+            if (rows) {
+                globalExercises = rows;
                 renderStudentExercises();
             }
         }
@@ -384,16 +395,32 @@
             return String(str ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
         }
 
+        // Admin lists show hidden items too (marked as hidden)
+        async function fetchAdminRows(table, cols) {
+            const run = c => supabaseClient.from(table).select(c).order('created_at', { ascending: false });
+            let res = await run(cols + ', is_hidden');
+            if (res.error) res = await run(cols);   // column not added yet
+            return res;
+        }
+
         async function fetchAdminLessons() {
             if (!isDbConnected) return;
-            const { data, error } = await supabaseClient.from('portal_lessons').select('id, title, target_class, created_at').order('created_at', { ascending: false });
+            const { data, error } = await fetchAdminRows('portal_lessons', 'id, title, target_class, created_at');
             if (!error && data) { adminLessons = data; renderAdminLessons(); }
         }
 
         async function fetchAdminExercises() {
             if (!isDbConnected) return;
-            const { data, error } = await supabaseClient.from('portal_exercises').select('id, title, target_class, questions, created_at').order('created_at', { ascending: false });
+            const { data, error } = await fetchAdminRows('portal_exercises', 'id, title, target_class, questions, created_at');
             if (!error && data) { adminExercises = data; renderAdminExercises(); }
+        }
+
+        function hiddenBadge(item) {
+            return item.is_hidden ? '<span class="ml-2 align-middle text-xs font-semibold text-amber-700 bg-amber-100 border border-amber-300 rounded px-1.5 py-0.5">Hidden from students</span>' : '';
+        }
+
+        function visibilityButton(kind, item) {
+            return `<button onclick="window.adminToggleHidden('${kind}', '${item.id}')" class="text-amber-600 text-sm hover:underline">${item.is_hidden ? 'Show' : 'Hide'}</button>`;
         }
 
         function renderAdminLessons() {
@@ -403,12 +430,13 @@
                 return;
             }
             list.innerHTML = adminLessons.map(l => `
-                <li class="flex justify-between items-center px-4 py-3 bg-white gap-4">
-                    <div>
-                        <span class="font-medium">${escapeHtml(l.title)}</span>
+                <li class="flex justify-between items-center px-4 py-3 gap-4 ${l.is_hidden ? 'bg-gray-100' : 'bg-white'}">
+                    <div class="${l.is_hidden ? 'opacity-60' : ''}">
+                        <span class="font-medium">${escapeHtml(l.title)}</span>${hiddenBadge(l)}
                         <span class="block text-xs text-gray-500">${escapeHtml(l.target_class)}</span>
                     </div>
                     <div class="flex gap-4 flex-shrink-0">
+                        ${visibilityButton('lesson', l)}
                         <button onclick="window.adminEditLesson('${l.id}')" class="text-indigo-600 text-sm hover:underline">Edit</button>
                         <button onclick="window.adminDeleteLesson('${l.id}')" class="text-red-500 text-sm hover:underline">Delete</button>
                     </div>
@@ -423,12 +451,13 @@
                 return;
             }
             list.innerHTML = adminExercises.map(ex => `
-                <li class="flex justify-between items-center px-4 py-3 bg-white gap-4">
-                    <div>
-                        <span class="font-medium">${escapeHtml(ex.title)}</span>
+                <li class="flex justify-between items-center px-4 py-3 gap-4 ${ex.is_hidden ? 'bg-gray-100' : 'bg-white'}">
+                    <div class="${ex.is_hidden ? 'opacity-60' : ''}">
+                        <span class="font-medium">${escapeHtml(ex.title)}</span>${hiddenBadge(ex)}
                         <span class="block text-xs text-gray-500">${escapeHtml(ex.target_class)} &bull; ${(ex.questions || []).length} questions</span>
                     </div>
                     <div class="flex gap-4 flex-shrink-0">
+                        ${visibilityButton('exercise', ex)}
                         <button onclick="window.adminEditExercise('${ex.id}')" class="text-indigo-600 text-sm hover:underline">Edit</button>
                         <button onclick="window.adminDeleteExercise('${ex.id}')" class="text-red-500 text-sm hover:underline">Delete</button>
                     </div>
@@ -436,7 +465,24 @@
             `).join('');
         }
 
-        window.adminDeleteLesson = async function(id) {
+        window.adminToggleHidden = async function(kind, id) {
+            if (!isDbConnected) return;
+            const isLesson = kind === 'lesson';
+            const table = isLesson ? 'portal_lessons' : 'portal_exercises';
+            const item = (isLesson ? adminLessons : adminExercises).find(x => x.id == id);
+            if (!item) return;
+            const newValue = !item.is_hidden;
+            const { data, error } = await supabaseClient.from(table).update({ is_hidden: newValue }).eq('id', id).select('id');
+            if (error || !data || data.length === 0) {
+                alert("Could not change visibility. Re-run portal-setup.sql in Supabase (it adds the is_hidden column and update permission).");
+                if (error) console.error(error);
+                return;
+            }
+            item.is_hidden = newValue;
+            if (isLesson) renderAdminLessons(); else renderAdminExercises();
+        };
+
+window.adminDeleteLesson = async function(id) {
             if (!isDbConnected || !confirm("Delete this lesson?")) return;
             const { error } = await supabaseClient.from('portal_lessons').delete().eq('id', id);
             if (error) { alert("Could not delete the lesson."); console.error(error); return; }
