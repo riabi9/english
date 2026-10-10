@@ -132,7 +132,7 @@
             <!-- Admin: Lessons Tab -->
             <div id="admin-lessons-container" class="hidden fade-in space-y-6">
                 <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-                    <h3 class="text-lg font-bold mb-4">Draft New Lesson</h3>
+                    <h3 id="lesson-form-title" class="text-lg font-bold mb-4">Draft New Lesson</h3>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                         <input type="text" id="admin-lesson-title" class="px-4 py-2 border border-gray-300 rounded-lg" placeholder="Lesson Title">
                         <select id="admin-lesson-class" class="dynamic-class-select px-4 py-2 border border-gray-300 rounded-lg">
@@ -152,7 +152,8 @@
                         </div>
                         <div id="admin-lesson-content" contenteditable="true" class="editor-content p-4 border border-gray-300 rounded-b-lg bg-white" data-placeholder="Write lesson here..."></div>
                     </div>
-                    <button onclick="window.adminPublishLesson()" class="bg-indigo-600 text-white py-2 px-6 rounded-lg">Publish Lesson</button>
+                    <button id="lesson-publish-btn" onclick="window.adminPublishLesson()" class="bg-indigo-600 text-white py-2 px-6 rounded-lg">Publish Lesson</button>
+                    <button id="lesson-cancel-btn" type="button" onclick="window.adminCancelLessonEdit()" class="hidden ml-2 py-2 px-4 rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-50">Cancel edit</button>
                     <span id="lesson-publish-msg" class="ml-3 text-sm font-medium hidden"></span>
                 </div>
 
@@ -165,7 +166,7 @@
             <!-- Admin: Exercises Tab -->
             <div id="admin-exercises-container" class="hidden fade-in space-y-6">
                 <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-                    <h3 class="text-lg font-bold mb-4">Create Exercise</h3>
+                    <h3 id="ex-form-title" class="text-lg font-bold mb-4">Create Exercise</h3>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                         <input type="text" id="admin-ex-title" class="px-4 py-2 border border-gray-300 rounded-lg" placeholder="Exercise Title">
                         <select id="admin-ex-class" class="dynamic-class-select px-4 py-2 border border-gray-300 rounded-lg">
@@ -187,7 +188,8 @@
                         </div>
                         <div id="admin-questions-list" class="space-y-4"></div>
                     </div>
-                    <button onclick="window.adminPublishExercise()" class="bg-indigo-600 text-white py-2 px-6 rounded-lg">Publish Exercise</button>
+                    <button id="ex-publish-btn" onclick="window.adminPublishExercise()" class="bg-indigo-600 text-white py-2 px-6 rounded-lg">Publish Exercise</button>
+                    <button id="ex-cancel-btn" type="button" onclick="window.adminCancelExerciseEdit()" class="hidden ml-2 py-2 px-4 rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-50">Cancel edit</button>
                     <span id="ex-publish-msg" class="ml-3 text-sm font-medium hidden"></span>
                 </div>
 
@@ -406,7 +408,10 @@
                         <span class="font-medium">${escapeHtml(l.title)}</span>
                         <span class="block text-xs text-gray-500">${escapeHtml(l.target_class)}</span>
                     </div>
-                    <button onclick="window.adminDeleteLesson('${l.id}')" class="text-red-500 text-sm hover:underline">Delete</button>
+                    <div class="flex gap-4 flex-shrink-0">
+                        <button onclick="window.adminEditLesson('${l.id}')" class="text-indigo-600 text-sm hover:underline">Edit</button>
+                        <button onclick="window.adminDeleteLesson('${l.id}')" class="text-red-500 text-sm hover:underline">Delete</button>
+                    </div>
                 </li>
             `).join('');
         }
@@ -423,7 +428,10 @@
                         <span class="font-medium">${escapeHtml(ex.title)}</span>
                         <span class="block text-xs text-gray-500">${escapeHtml(ex.target_class)} &bull; ${(ex.questions || []).length} questions</span>
                     </div>
-                    <button onclick="window.adminDeleteExercise('${ex.id}')" class="text-red-500 text-sm hover:underline">Delete</button>
+                    <div class="flex gap-4 flex-shrink-0">
+                        <button onclick="window.adminEditExercise('${ex.id}')" class="text-indigo-600 text-sm hover:underline">Edit</button>
+                        <button onclick="window.adminDeleteExercise('${ex.id}')" class="text-red-500 text-sm hover:underline">Delete</button>
+                    </div>
                 </li>
             `).join('');
         }
@@ -432,6 +440,7 @@
             if (!isDbConnected || !confirm("Delete this lesson?")) return;
             const { error } = await supabaseClient.from('portal_lessons').delete().eq('id', id);
             if (error) { alert("Could not delete the lesson."); console.error(error); return; }
+            if (editingLessonId === id) window.adminCancelLessonEdit();
             fetchAdminLessons();
         };
 
@@ -439,6 +448,7 @@
             if (!isDbConnected || !confirm("Delete this exercise?")) return;
             const { error } = await supabaseClient.from('portal_exercises').delete().eq('id', id);
             if (error) { alert("Could not delete the exercise."); console.error(error); return; }
+            if (editingExerciseId === id) window.adminCancelExerciseEdit();
             fetchAdminExercises();
         };
 
@@ -841,6 +851,46 @@
             `).join('');
         }
 
+        let editingLessonId = null;
+
+        function setSelectValue(select, value) {
+            if (!Array.from(select.options).some(o => o.value === value)) {
+                select.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`);
+            }
+            select.value = value;
+        }
+
+        function setLessonFormMode(editing) {
+            document.getElementById('lesson-form-title').textContent = editing ? 'Edit Lesson' : 'Draft New Lesson';
+            document.getElementById('lesson-publish-btn').textContent = editing ? 'Update Lesson' : 'Publish Lesson';
+            document.getElementById('lesson-cancel-btn').classList.toggle('hidden', !editing);
+        }
+
+        function resetLessonForm() {
+            editingLessonId = null;
+            document.getElementById('admin-lesson-title').value = '';
+            document.getElementById('admin-lesson-content').innerHTML = '';
+            setLessonFormMode(false);
+        }
+
+        window.adminCancelLessonEdit = function() {
+            resetLessonForm();
+            document.getElementById('admin-lesson-class').value = '';
+        };
+
+        window.adminEditLesson = async function(id) {
+            if (!isDbConnected) return;
+            const { data, error } = await supabaseClient.from('portal_lessons').select('*').eq('id', id).single();
+            if (error || !data) { alert("Could not load this lesson."); console.error(error); return; }
+            editingLessonId = id;
+            document.getElementById('admin-lesson-title').value = data.title;
+            setSelectValue(document.getElementById('admin-lesson-class'), data.target_class);
+            document.getElementById('admin-lesson-content').innerHTML = data.content;
+            setLessonFormMode(true);
+            document.getElementById('lesson-publish-msg').classList.add('hidden');
+            document.getElementById('lesson-form-title').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        };
+
         window.adminPublishLesson = async function() {
             if(!isDbConnected) return alert("Database not connected.");
             const title = document.getElementById('admin-lesson-title').value.trim();
@@ -852,17 +902,34 @@
                 msgEl.textContent = "Fill all fields."; msgEl.className = "ml-3 text-sm text-red-600 block"; return;
             }
 
-            const { error } = await supabaseClient.from('portal_lessons').insert([{ title, target_class: targetClass, content }]);
-            if(!error) {
-                msgEl.textContent = "Lesson Published!"; msgEl.className = "ml-3 text-sm text-green-600 block";
-                document.getElementById('admin-lesson-title').value = '';
-                document.getElementById('admin-lesson-content').innerHTML = '';
-                fetchAdminLessons();
-                setTimeout(() => msgEl.classList.add('hidden'), 3000);
+            const payload = { title, target_class: targetClass, content };
+            const wasEditing = !!editingLessonId;
+            let error;
+            if (wasEditing) {
+                const res = await supabaseClient.from('portal_lessons').update(payload).eq('id', editingLessonId).select('id');
+                error = res.error;
+                // Without an UPDATE policy Supabase reports success but changes nothing
+                if (!error && (!res.data || res.data.length === 0)) error = { message: 'No row was updated (is the UPDATE policy missing?)' };
+            } else {
+                ({ error } = await supabaseClient.from('portal_lessons').insert([payload]));
             }
+
+            if (error) {
+                msgEl.textContent = wasEditing ? "Could not update the lesson. Re-run portal-setup.sql in Supabase to allow edits." : "Could not publish the lesson.";
+                msgEl.className = "ml-3 text-sm text-red-600 block";
+                console.error(error);
+                return;
+            }
+
+            msgEl.textContent = wasEditing ? "Lesson Updated!" : "Lesson Published!";
+            msgEl.className = "ml-3 text-sm text-green-600 block";
+            resetLessonForm();
+            if (wasEditing) document.getElementById('admin-lesson-class').value = '';
+            fetchAdminLessons();
+            setTimeout(() => msgEl.classList.add('hidden'), 3000);
         };
 
-        window.adminAddQuestionBlock = function(type) {
+window.adminAddQuestionBlock = function(type) {
             if (typeof type !== 'string' || !Q_TYPE_LABELS[type]) type = 'mcq';
             const container = document.getElementById('admin-questions-list');
             let inner = '';
@@ -1075,6 +1142,97 @@
             return { data: { type, text, pairs } };
         }
 
+        let editingExerciseId = null;
+
+        function setExerciseFormMode(editing) {
+            document.getElementById('ex-form-title').textContent = editing ? 'Edit Exercise' : 'Create Exercise';
+            document.getElementById('ex-publish-btn').textContent = editing ? 'Update Exercise' : 'Publish Exercise';
+            document.getElementById('ex-cancel-btn').classList.toggle('hidden', !editing);
+        }
+
+        function resetExerciseForm() {
+            editingExerciseId = null;
+            document.getElementById('admin-ex-title').value = '';
+            document.getElementById('admin-questions-list').innerHTML = '';
+            window.adminAddQuestionBlock('mcq');
+            setExerciseFormMode(false);
+        }
+
+        window.adminCancelExerciseEdit = function() {
+            resetExerciseForm();
+            document.getElementById('admin-ex-class').value = '';
+        };
+
+        // ---- Loading a saved exercise back into the builder ----
+
+        function fillMcq(el, q) {
+            el.querySelector('.q-text-input').value = q.text || '';
+            const inputs = el.querySelectorAll('.opt-input');
+            (q.options || []).slice(0, inputs.length).forEach((o, i) => { inputs[i].value = o; });
+            const radios = el.querySelectorAll('input[type="radio"]');
+            const ci = parseInt(q.correctIndex);
+            if (radios[ci]) { radios[ci].checked = true; window.highlightCorrect(radios[ci]); }
+        }
+
+        function fillRows(block, rows, kind) {
+            const addBtn = block.querySelector('.add-q-btn');
+            while (block.querySelectorAll('.edit-row').length < rows.length) window.adminAddRow(addBtn, kind);
+            const els = block.querySelectorAll('.edit-row');
+            rows.forEach((vals, i) => {
+                if (kind === 'item') {
+                    els[i].querySelector('.item-input').value = vals[0];
+                } else {
+                    els[i].querySelector('.pair-left').value = vals[0];
+                    els[i].querySelector('.pair-right').value = vals[1];
+                }
+            });
+        }
+
+        function fillBlock(block, q) {
+            const type = block.dataset.type;
+            if (type === 'mcq') {
+                fillMcq(block.querySelector('.mcq-edit'), q);
+            } else if (type === 'passage') {
+                block.querySelector('.passage-text').value = q.passage || '';
+                const subs = q.questions || [];
+                while (block.querySelectorAll('.sub-q-block').length < subs.length) window.adminAddSubQuestion(block);
+                block.querySelectorAll('.sub-q-block .mcq-edit').forEach((el, i) => { if (subs[i]) fillMcq(el, subs[i]); });
+            } else if (type === 'reorder') {
+                block.querySelector('.q-text-input').value = q.text || '';
+                fillRows(block, (q.items || []).map(it => [it]), 'item');
+            } else if (type === 'match' || type === 'link') {
+                block.querySelector('.q-text-input').value = q.text || '';
+                fillRows(block, (q.pairs || []).map(p => [p.left, p.right]), 'pair');
+            } else if (type === 'tf') {
+                block.querySelector('.q-text-input').value = q.text || '';
+                const radio = block.querySelector(`.tf-radio[value="${q.correct ? 'true' : 'false'}"]`);
+                if (radio) radio.checked = true;
+            }
+        }
+
+        window.adminEditExercise = async function(id) {
+            if (!isDbConnected) return;
+            const { data, error } = await supabaseClient.from('portal_exercises').select('*').eq('id', id).single();
+            if (error || !data) { alert("Could not load this exercise."); console.error(error); return; }
+
+            editingExerciseId = id;
+            document.getElementById('admin-ex-title').value = data.title;
+            setSelectValue(document.getElementById('admin-ex-class'), data.target_class);
+
+            const list = document.getElementById('admin-questions-list');
+            list.innerHTML = '';
+            (data.questions || []).forEach(q => {
+                const type = Q_TYPE_LABELS[q.type] ? q.type : 'mcq';   // old exercises have no type = multiple choice
+                window.adminAddQuestionBlock(type);
+                fillBlock(list.lastElementChild, q);
+            });
+            if (list.children.length === 0) window.adminAddQuestionBlock('mcq');
+
+            setExerciseFormMode(true);
+            document.getElementById('ex-publish-msg').classList.add('hidden');
+            document.getElementById('ex-form-title').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        };
+
         window.adminPublishExercise = async function() {
             if(!isDbConnected) return alert("Database not connected.");
             const title = document.getElementById('admin-ex-title').value.trim();
@@ -1101,21 +1259,34 @@
                 return;
             }
 
-            const { error } = await supabaseClient.from('portal_exercises').insert([{ title, target_class: targetClass, questions }]);
+            const payload = { title, target_class: targetClass, questions };
+            const wasEditing = !!editingExerciseId;
+            let error;
+            if (wasEditing) {
+                const res = await supabaseClient.from('portal_exercises').update(payload).eq('id', editingExerciseId).select('id');
+                error = res.error;
+                // Without an UPDATE policy Supabase reports success but changes nothing
+                if (!error && (!res.data || res.data.length === 0)) error = { message: 'No row was updated (is the UPDATE policy missing?)' };
+            } else {
+                ({ error } = await supabaseClient.from('portal_exercises').insert([payload]));
+            }
+
             if (error) {
-                msgEl.textContent = "Could not publish the exercise."; msgEl.className = "ml-3 text-sm text-red-600 block";
+                msgEl.textContent = wasEditing ? "Could not update the exercise. Re-run portal-setup.sql in Supabase to allow edits." : "Could not publish the exercise.";
+                msgEl.className = "ml-3 text-sm text-red-600 block";
                 console.error(error);
                 return;
             }
-            msgEl.textContent = "Exercise Published!"; msgEl.className = "ml-3 text-sm text-green-600 block";
-            document.getElementById('admin-ex-title').value = '';
-            document.getElementById('admin-questions-list').innerHTML = '';
-            window.adminAddQuestionBlock('mcq');
+
+            msgEl.textContent = wasEditing ? "Exercise Updated!" : "Exercise Published!";
+            msgEl.className = "ml-3 text-sm text-green-600 block";
+            resetExerciseForm();
+            if (wasEditing) document.getElementById('admin-ex-class').value = '';
             fetchAdminExercises();
             setTimeout(() => msgEl.classList.add('hidden'), 3000);
         };
 
-        function renderAdminResults() {
+function renderAdminResults() {
             const tbody = document.getElementById('results-table-body');
             const table = document.getElementById('results-table');
             const msg = document.getElementById('no-results-msg');
