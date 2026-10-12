@@ -1083,22 +1083,32 @@ window.adminAddQuestionBlock = function(type) {
             return Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36);
         }
 
+        function mcqOptRowHtml(gid, i) {
+            return `
+                            <div class="opt-row flex items-center gap-3 px-3 py-1.5 border border-transparent rounded-lg">
+                                <input type="radio" name="correct-${gid}" value="${i}" class="w-4 h-4 cursor-pointer" onchange="window.highlightCorrect(this)" title="Mark as correct answer">
+                                <input type="text" class="opt-input flex-1 px-3 py-1.5 border rounded text-sm bg-white" placeholder="Option ${i+1}">
+                            </div>`;
+        }
+
         function mcqFieldsHtml(placeholder) {
             const id = newId();
             return `
-                <div class="mcq-edit">
+                <div class="mcq-edit" data-gid="${id}">
                     <input type="text" class="q-text-input w-full px-3 py-2 border rounded mb-2 bg-white" placeholder="${placeholder}">
                     <p class="text-xs text-gray-500 mb-2">Fill in the options, then select the circle next to the correct answer.</p>
-                    <div class="space-y-2">
-                        ${[0,1,2,3].map(i => `
-                            <div class="opt-row flex items-center gap-3 px-3 py-1.5 border border-transparent rounded-lg">
-                                <input type="radio" name="correct-${id}" value="${i}" class="w-4 h-4 cursor-pointer" onchange="window.highlightCorrect(this)" title="Mark as correct answer">
-                                <input type="text" class="opt-input flex-1 px-3 py-1.5 border rounded text-sm bg-white" placeholder="Option ${i+1}">
-                            </div>
-                        `).join('')}
+                    <div class="opt-list space-y-2">
+                        ${[0,1,2,3].map(i => mcqOptRowHtml(id, i)).join('')}
                     </div>
+                    <button type="button" onclick="window.adminAddOption(this)" class="add-opt-btn mt-2 text-xs text-indigo-600 hover:underline">+ Add option</button>
                 </div>`;
         }
+
+        window.adminAddOption = function(btn) {
+            const wrap = btn.closest('.mcq-edit');
+            const list = wrap.querySelector('.opt-list');
+            list.insertAdjacentHTML('beforeend', mcqOptRowHtml(wrap.dataset.gid, list.children.length));
+        };
 
         function itemRowHtml() {
             return `
@@ -1257,8 +1267,10 @@ window.adminAddQuestionBlock = function(type) {
 
         function fillMcq(el, q) {
             el.querySelector('.q-text-input').value = q.text || '';
+            const addBtn = el.querySelector('.add-opt-btn');
+            while (el.querySelectorAll('.opt-input').length < (q.options || []).length) window.adminAddOption(addBtn);
             const inputs = el.querySelectorAll('.opt-input');
-            (q.options || []).slice(0, inputs.length).forEach((o, i) => { inputs[i].value = o; });
+            (q.options || []).forEach((o, i) => { inputs[i].value = o; });
             const radios = el.querySelectorAll('input[type="radio"]');
             const ci = parseInt(q.correctIndex);
             if (radios[ci]) { radios[ci].checked = true; window.highlightCorrect(radios[ci]); }
@@ -1721,12 +1733,11 @@ window.adminAddQuestionBlock = function(type) {
             if (!text) return { error: 'the question text is empty' };
             const filled = raw.filter(Boolean);
             if (filled.length < 2) return { error: 'needs at least 2 options' };
-            if (filled.length > 4) return { error: 'multiple choice supports up to 4 options' };
-            if (!correctRaw) return { error: 'the Correct column is empty (use A, B, C, D, a number 1-4, or the option text)' };
+            if (!correctRaw) return { error: 'the Correct column is empty (use the letter A, B, C..., the option number, or the option text)' };
 
             const lower = correctRaw.toLowerCase();
             let pos = raw.findIndex(o => o && o.toLowerCase() === lower);                     // exact option text
-            if (pos < 0 && /^[a-j]$/i.test(correctRaw)) pos = correctRaw.toUpperCase().charCodeAt(0) - 65;   // A, B, C...
+            if (pos < 0 && /^[a-z]$/i.test(correctRaw)) pos = correctRaw.toUpperCase().charCodeAt(0) - 65;   // A, B, C...
             if (pos < 0 && /^\d+$/.test(correctRaw)) pos = parseInt(correctRaw, 10) - 1;       // 1, 2, 3...
             if (pos < 0 || pos >= raw.length || !raw[pos]) return { error: `could not match the correct answer "${correctRaw}" to one of the options` };
 
@@ -1924,7 +1935,7 @@ window.adminAddQuestionBlock = function(type) {
                 ['Rows whose Type starts with # are ignored, so you can use them for notes.'],
                 [''],
                 ['Type = mcq (multiple choice)'],
-                ['   Question: the question. Option 1-4: the answers (2 to 4). Correct: A, B, C or D (or 1-4, or the exact text of the right option).'],
+                ['   Question: the question. Option 1-8: the answers (at least 2; add more Option columns if you need more). Correct: A, B, C... (or the option number, or the exact text of the right option).'],
                 ['Type = tf (true / false)'],
                 ['   Question: the statement. Correct: TRUE or FALSE.'],
                 ['Type = reorder'],
