@@ -88,11 +88,10 @@
                     <div class="border-t border-gray-200 pt-6 mt-6 bg-gray-50 -mx-6 -mb-6 p-6 rounded-b-xl">
                         <h4 class="text-lg font-semibold text-gray-800 mb-4">Submission Details</h4>
                         <div class="max-w-md mb-6">
-                            <label id="student-name-label" class="block text-sm font-medium text-gray-700 mb-1">Your Full Name</label>
-                            <select id="student-roster-select" class="hidden w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 bg-white"></select>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Your Full Name</label>
                             <input type="text" id="student-name-input" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 bg-white" placeholder="e.g. Jane Doe">
                         </div>
-                        <button id="submit-exercise-btn" onclick="window.submitExercise()" class="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold py-2.5 px-6 rounded-lg transition-colors">
+                        <button onclick="window.submitExercise()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-6 rounded-lg transition-colors">
                             Submit Answers
                         </button>
                         <p id="submission-error" class="text-red-500 text-sm mt-3 hidden font-medium"></p>
@@ -127,27 +126,6 @@
                         <button onclick="window.adminAddClass()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded-lg">Add</button>
                     </div>
                     <ul id="admin-classes-list" class="divide-y divide-gray-200 bg-gray-50 border rounded-lg overflow-hidden"></ul>
-                </div>
-
-                <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-                    <h3 class="text-lg font-bold mb-1">Students</h3>
-                    <p class="text-sm text-gray-500 mb-4">Add each class's students once. Students then pick their name from a list, so every result is linked to the same person, even if they would have misspelled their name.</p>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div>
-                            <select id="admin-roster-class" onchange="window.adminLoadRoster()" class="dynamic-class-select w-full px-4 py-2 border border-gray-300 rounded-lg mb-3">
-                                <option value="" disabled selected>Select Class</option>
-                            </select>
-                            <textarea id="admin-roster-names" rows="7" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" placeholder="One name per line. You can paste the whole class list here."></textarea>
-                            <div class="mt-3">
-                                <button onclick="window.adminAddStudents()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded-lg">Add students</button>
-                                <span id="roster-msg" class="ml-3 text-sm font-medium"></span>
-                            </div>
-                        </div>
-                        <div>
-                            <p id="roster-count" class="text-sm text-gray-600 mb-2">Choose a class to see its students.</p>
-                            <ul id="admin-roster-list" class="divide-y divide-gray-200 bg-gray-50 border rounded-lg overflow-hidden max-h-72 overflow-y-auto"></ul>
-                        </div>
-                    </div>
                 </div>
             </div>
 
@@ -223,27 +201,20 @@
 
             <!-- Admin: Results Tab -->
             <div id="admin-results-container" class="hidden fade-in">
-                <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-                    <div class="flex flex-wrap items-end gap-3 mb-3">
-                        <div>
-                            <label class="block text-xs font-medium text-gray-500 mb-1">Class</label>
-                            <select id="results-class-filter" onchange="window.loadResults(true)" class="px-3 py-2 border border-gray-300 rounded-lg bg-white">
-                                <option value="">All classes</option>
-                            </select>
-                        </div>
-                        <div class="flex-1 min-w-[10rem]">
-                            <label class="block text-xs font-medium text-gray-500 mb-1">Search student</label>
-                            <input id="results-search" type="text" oninput="window.renderResults()" class="w-full px-3 py-2 border border-gray-300 rounded-lg" placeholder="Type a name...">
-                        </div>
-                        <div class="flex rounded-lg overflow-hidden border border-gray-300">
-                            <button id="results-view-students" onclick="window.setResultsView('students')" class="px-3 py-2 text-sm bg-indigo-600 text-white">By student</button>
-                            <button id="results-view-all" onclick="window.setResultsView('all')" class="px-3 py-2 text-sm bg-white text-gray-700 hover:bg-gray-50">All submissions</button>
-                        </div>
-                        <button onclick="window.loadResults(true)" class="px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white hover:bg-gray-50">Refresh</button>
-                        <button onclick="window.exportResultsCsv()" class="px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white hover:bg-gray-50">Export CSV</button>
-                    </div>
-                    <p id="results-status" class="text-xs text-gray-500 mb-3"></p>
-                    <div id="results-body" class="overflow-x-auto"></div>
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden p-6">
+                    <h3 class="text-lg font-bold mb-4">Student Submissions</h3>
+                    <table class="min-w-full divide-y divide-gray-200 hidden" id="results-table">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Student</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Class</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Exercise</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Score</th>
+                            </tr>
+                        </thead>
+                        <tbody id="results-table-body" class="bg-white divide-y divide-gray-200"></tbody>
+                    </table>
+                    <div id="no-results-msg" class="text-center py-10 text-gray-500">No submissions found.</div>
                 </div>
             </div>
         </div>
@@ -320,7 +291,7 @@
         };
 
         window.verifyAdminPassword = function() {
-            if (document.getElementById('admin-password-input').value === '19990') {
+            if (document.getElementById('admin-password-input').value === 'admin') {
                 window.closeAdminLogin();
                 window.setRole('admin');
             } else {
@@ -364,7 +335,6 @@
                 if(t === tabId) document.getElementById(`admin-${t}-container`).classList.remove('hidden');
                 else document.getElementById(`admin-${t}-container`).classList.add('hidden');
             });
-            if (tabId === 'results') window.loadResults(false);
             if(tabId === 'exercises' && document.getElementById('admin-questions-list').children.length === 0){
                 window.adminAddQuestionBlock(); 
             }
@@ -532,6 +502,13 @@ window.adminDeleteLesson = async function(id) {
             fetchClasses();
             fetchAdminLessons();
             fetchAdminExercises();
+            if(isDbConnected) {
+                const { data } = await supabaseClient.from('portal_submissions').select('*').order('created_at', { ascending: false });
+                if(data) {
+                    globalSubmissions = data;
+                    renderAdminResults();
+                }
+            }
         }
 
 
@@ -545,7 +522,6 @@ window.adminDeleteLesson = async function(id) {
                 });
                 if (currentVal) select.value = currentVal;
             });
-            updateResultsClassFilter();
         }
 
         window.handleClassSelection = function() {
@@ -555,7 +531,6 @@ window.adminDeleteLesson = async function(id) {
                 document.getElementById('student-content-area').classList.remove('hidden');
                 fetchLessons(currentStudentClass);
                 fetchExercises(currentStudentClass);
-                fetchRoster(currentStudentClass);
             } else {
                 document.getElementById('student-no-class-msg').classList.remove('hidden');
                 document.getElementById('student-content-area').classList.add('hidden');
@@ -620,8 +595,7 @@ window.adminDeleteLesson = async function(id) {
             document.getElementById('student-exercises-container').classList.add('hidden');
             document.getElementById('active-exercise-view').classList.remove('hidden');
             document.getElementById('active-exercise-title').textContent = ex.title;
-            setupNameField();
-            document.getElementById('submit-exercise-btn').disabled = false;
+            document.getElementById('student-name-input').value = '';
             document.getElementById('submission-error').classList.add('hidden');
             document.getElementById('submission-success').classList.add('hidden');
 
@@ -868,15 +842,10 @@ window.adminDeleteLesson = async function(id) {
 
         window.submitExercise = async function() {
             if(!isDbConnected) { alert("Database not connected. Submissions are disabled."); return; }
-            const student = getSubmittingStudent();
+            const name = document.getElementById('student-name-input').value.trim();
             const errEl = document.getElementById('submission-error');
-            const submitBtn = document.getElementById('submit-exercise-btn');
-            if (submitBtn.disabled) return;
 
-            if (!student) {
-                errEl.textContent = document.getElementById('student-roster-select').classList.contains('hidden') ? "Please enter your name." : "Please choose your name from the list.";
-                errEl.classList.remove('hidden'); return;
-            }
+            if (!name) { errEl.textContent = "Please enter your name."; errEl.classList.remove('hidden'); return; }
             const missing = firstUnanswered();
             if (missing) {
                 errEl.textContent = `Please answer all questions (question ${missing} is not finished).`;
@@ -888,18 +857,15 @@ window.adminDeleteLesson = async function(id) {
             errEl.classList.add('hidden');
 
             const payload = {
-                student_name: student.name,
+                student_name: name,
                 class_name: currentStudentClass,
                 exercise_title: activeExerciseData.title,
                 score: score,
                 total: total
             };
-            if (student.id) payload.student_id = student.id;
 
-            submitBtn.disabled = true;      // one click = one saved attempt
             const { error } = await supabaseClient.from('portal_submissions').insert([payload]);
             if(error) {
-                submitBtn.disabled = false;
                 errEl.textContent = "Error submitting. Try again."; errEl.classList.remove('hidden');
             } else {
                 document.getElementById('submission-success').classList.remove('hidden');
@@ -1366,321 +1332,25 @@ window.adminAddQuestionBlock = function(type) {
             setTimeout(() => msgEl.classList.add('hidden'), 3000);
         };
 
-        // ==========================================
-        // STUDENT LIST (roster): the same person = the same student_id
-        // ==========================================
-        let rosterCache = {};      // class name -> [{ id, name }]   (student side, fetched once per class)
-        let adminRoster = [];      // students of the class selected in the admin "Students" card
-
-        async function fetchRoster(className) {
-            if (!isDbConnected || !className) return [];
-            if (rosterCache[className]) return rosterCache[className];
-            const { data, error } = await supabaseClient.from('portal_students').select('id, name').eq('class_name', className).order('name', { ascending: true });
-            if (error || !data) return [];          // table not created yet -> students just type their name
-            rosterCache[className] = data;
-            return data;
-        }
-
-        // Student side: show a name dropdown when the class has a student list, otherwise a text box
-        async function setupNameField() {
-            const sel = document.getElementById('student-roster-select');
-            const input = document.getElementById('student-name-input');
-            const label = document.getElementById('student-name-label');
-            sel.classList.add('hidden'); input.classList.remove('hidden');
-            label.textContent = 'Your Full Name';
-            input.value = '';
-            const cls = currentStudentClass;
-            const roster = await fetchRoster(cls);
-            if (cls !== currentStudentClass || roster.length === 0) return;
-            sel.innerHTML = '<option value="">-- Choose your name --</option>' +
-                roster.map(s => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.name)}</option>`).join('');
-            input.classList.add('hidden'); sel.classList.remove('hidden');
-            label.textContent = 'Your Name';
-        }
-
-        function getSubmittingStudent() {
-            const sel = document.getElementById('student-roster-select');
-            if (!sel.classList.contains('hidden')) {
-                return sel.value ? { id: sel.value, name: sel.selectedOptions[0].textContent } : null;
+function renderAdminResults() {
+            const tbody = document.getElementById('results-table-body');
+            const table = document.getElementById('results-table');
+            const msg = document.getElementById('no-results-msg');
+            
+            if(globalSubmissions.length === 0) {
+                table.classList.add('hidden'); msg.classList.remove('hidden'); return;
             }
-            const name = document.getElementById('student-name-input').value.trim().replace(/\s+/g, ' ');
-            return name ? { id: null, name } : null;
+            
+            table.classList.remove('hidden'); msg.classList.add('hidden');
+            tbody.innerHTML = globalSubmissions.map(sub => `
+                <tr class="hover:bg-gray-50">
+                    <td class="px-6 py-4 text-sm font-medium text-gray-900">${sub.student_name}</td>
+                    <td class="px-6 py-4 text-sm text-gray-500">${sub.class_name}</td>
+                    <td class="px-6 py-4 text-sm text-gray-500">${sub.exercise_title}</td>
+                    <td class="px-6 py-4 text-sm font-bold text-indigo-600">${sub.score} / ${sub.total}</td>
+                </tr>
+            `).join('');
         }
-
-        // ---- Admin: manage the student list of a class ----
-
-        function rosterMsg(text, good) {
-            const el = document.getElementById('roster-msg');
-            el.textContent = text;
-            el.className = 'ml-3 text-sm font-medium ' + (good ? 'text-green-600' : 'text-red-600');
-        }
-
-        function renderAdminRoster() {
-            const list = document.getElementById('admin-roster-list');
-            const cls = document.getElementById('admin-roster-class').value;
-            document.getElementById('roster-count').textContent = cls ? `${adminRoster.length} student${adminRoster.length === 1 ? '' : 's'} in ${cls}` : 'Choose a class to see its students.';
-            if (!cls || adminRoster.length === 0) {
-                list.innerHTML = cls ? '<li class="px-4 py-3 bg-white text-sm text-gray-500">No students yet. Add some on the left.</li>' : '';
-                return;
-            }
-            list.innerHTML = adminRoster.map((s, i) => `
-                <li class="flex justify-between items-center px-4 py-2 bg-white gap-3">
-                    <span class="text-sm">${escapeHtml(s.name)}</span>
-                    <span class="flex gap-3 flex-shrink-0">
-                        <button onclick="window.adminRenameStudent(${i})" class="text-indigo-600 text-xs hover:underline">Rename</button>
-                        <button onclick="window.adminDeleteStudent(${i})" class="text-red-500 text-xs hover:underline">Delete</button>
-                    </span>
-                </li>`).join('');
-        }
-
-        window.adminLoadRoster = async function() {
-            if (!isDbConnected) return;
-            const cls = document.getElementById('admin-roster-class').value;
-            if (!cls) { adminRoster = []; renderAdminRoster(); return; }
-            const { data, error } = await supabaseClient.from('portal_students').select('id, name').eq('class_name', cls).order('name', { ascending: true });
-            if (error) {
-                adminRoster = [];
-                document.getElementById('admin-roster-list').innerHTML = '<li class="px-4 py-3 bg-white text-sm text-red-600">Could not load students. Re-run portal-setup.sql in Supabase.</li>';
-                console.error(error);
-                return;
-            }
-            adminRoster = data || [];
-            renderAdminRoster();
-        };
-
-        window.adminAddStudents = async function() {
-            if (!isDbConnected) return alert("Database not connected.");
-            const cls = document.getElementById('admin-roster-class').value;
-            if (!cls) return rosterMsg('Choose a class first.', false);
-            const seen = new Set();
-            const names = document.getElementById('admin-roster-names').value.split(/\r?\n/)
-                .map(n => n.trim().replace(/\s+/g, ' ')).filter(n => n && !seen.has(n.toLowerCase()) && seen.add(n.toLowerCase()));
-            if (names.length === 0) return rosterMsg('Type or paste at least one name (one per line).', false);
-
-            const before = adminRoster.length;
-            // One request for the whole list; names that already exist in the class are skipped
-            const { error } = await supabaseClient.from('portal_students')
-                .upsert(names.map(name => ({ class_name: cls, name })), { onConflict: 'class_name,name', ignoreDuplicates: true });
-            if (error) { rosterMsg('Could not add students. Re-run portal-setup.sql in Supabase.', false); console.error(error); return; }
-            document.getElementById('admin-roster-names').value = '';
-            delete rosterCache[cls];
-            await window.adminLoadRoster();
-            const added = adminRoster.length - before;
-            rosterMsg(`${added} added` + (added < names.length ? `, ${names.length - added} already in the list` : '') + '.', true);
-        };
-
-        window.adminRenameStudent = async function(i) {
-            const s = adminRoster[i];
-            if (!s) return;
-            const name = (prompt('New name:', s.name) || '').trim().replace(/\s+/g, ' ');
-            if (!name || name === s.name) return;
-            const { data, error } = await supabaseClient.from('portal_students').update({ name }).eq('id', s.id).select('id');
-            if (error || !data || data.length === 0) { rosterMsg('Could not rename (name already used, or re-run portal-setup.sql).', false); if (error) console.error(error); return; }
-            delete rosterCache[document.getElementById('admin-roster-class').value];
-            resultsData.loadedAt = 0;
-            window.adminLoadRoster();
-        };
-
-        window.adminDeleteStudent = async function(i) {
-            const s = adminRoster[i];
-            if (!s || !confirm(`Delete ${s.name} from the list?\nTheir past results stay in the Results tab.`)) return;
-            const { error } = await supabaseClient.from('portal_students').delete().eq('id', s.id);
-            if (error) { rosterMsg('Could not delete the student.', false); console.error(error); return; }
-            delete rosterCache[document.getElementById('admin-roster-class').value];
-            resultsData.loadedAt = 0;
-            window.adminLoadRoster();
-        };
-
-        // ==========================================
-        // RESULTS: loaded only when the Results tab is opened, filtered by class on the server,
-        // fetched in pages of 1000 rows, kept in memory for 60 s. No polling, no realtime.
-        // ==========================================
-        const RESULTS_LIMIT = 5000;
-        const RESULTS_ROW_CAP = 300;       // rows drawn in the "All submissions" view (CSV export has everything)
-        let resultsData = { subs: [], roster: [], cls: null, loadedAt: 0, truncated: false };
-        let resultsView = 'students';
-        let expandedStudents = new Set();
-        let resultsSummaries = [];
-
-        const normName = s => String(s ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
-        const pct = (score, total) => total > 0 ? Math.round(score / total * 100) : 0;
-        const pctColor = p => p >= 75 ? 'text-green-600' : p >= 50 ? 'text-amber-600' : 'text-red-600';
-        function fmtDate(iso) {
-            const d = new Date(iso);
-            if (isNaN(d)) return '';
-            return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) + ' ' +
-                   d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-        }
-
-        function updateResultsClassFilter() {
-            const sel = document.getElementById('results-class-filter');
-            if (!sel) return;
-            const cur = sel.value;
-            sel.innerHTML = '<option value="">All classes</option>' +
-                globalClasses.map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`).join('');
-            sel.value = cur;
-        }
-
-        async function fetchAllPages(build) {
-            let all = [];
-            for (let from = 0; from < RESULTS_LIMIT; from += 1000) {
-                const res = await build().range(from, from + 999);
-                if (res.error) return { error: res.error };
-                all = all.concat(res.data || []);
-                if (!res.data || res.data.length < 1000) return { data: all, truncated: false };
-            }
-            return { data: all, truncated: true };
-        }
-
-        window.loadResults = async function(force) {
-            if (!isDbConnected) return;
-            const cls = document.getElementById('results-class-filter').value;
-            if (!force && resultsData.cls === cls && Date.now() - resultsData.loadedAt < 60000) { window.renderResults(); return; }
-
-            const status = document.getElementById('results-status');
-            status.textContent = 'Loading...';
-            const cols = 'id, student_id, student_name, class_name, exercise_title, score, total, created_at';
-            const build = c => () => {
-                let q = supabaseClient.from('portal_submissions').select(c).order('created_at', { ascending: false });
-                return cls ? q.eq('class_name', cls) : q;
-            };
-            let sres = await fetchAllPages(build(cols));
-            if (sres.error) sres = await fetchAllPages(build(cols.replace('student_id, ', '')));   // column not added yet
-            if (sres.error) {
-                status.textContent = 'Could not load results.';
-                console.error(sres.error);
-                return;
-            }
-
-            let rq = supabaseClient.from('portal_students').select('id, name, class_name').order('name', { ascending: true });
-            if (cls) rq = rq.eq('class_name', cls);
-            const rres = await rq;
-
-            resultsData = { subs: sres.data, roster: rres.error || !rres.data ? [] : rres.data, cls, loadedAt: Date.now(), truncated: !!sres.truncated };
-            window.renderResults();
-        };
-
-        window.setResultsView = function(view) {
-            resultsView = view;
-            window.renderResults();
-        };
-
-        // One entry per student: roster students first (so people with no attempts show up), then
-        // anyone who only appears in old submissions. Old rows without a student_id are matched by name.
-        function buildStudentSummaries() {
-            const { subs, roster } = resultsData;
-            const rosterByName = {};
-            roster.forEach(s => { rosterByName[normName(s.class_name) + '|' + normName(s.name)] = s.id; });
-            const map = new Map();
-            roster.forEach(s => map.set(s.id, { key: s.id, name: s.name, cls: s.class_name, inRoster: true, subs: [] }));
-
-            subs.forEach(sub => {
-                let key = sub.student_id || rosterByName[normName(sub.class_name) + '|' + normName(sub.student_name)];
-                if (!key) key = 'n:' + normName(sub.class_name) + '|' + normName(sub.student_name);
-                let st = map.get(key);
-                if (!st) { st = { key, name: sub.student_name, cls: sub.class_name, inRoster: false, subs: [] }; map.set(key, st); }
-                st.subs.push(sub);                      // subs are newest first
-            });
-
-            const list = Array.from(map.values());
-            list.forEach(st => {
-                const byEx = new Map();
-                st.subs.forEach(sub => {
-                    let e = byEx.get(sub.exercise_title);
-                    if (!e) { e = { title: sub.exercise_title, attempts: 0, best: sub, latest: sub }; byEx.set(sub.exercise_title, e); }
-                    e.attempts++;
-                    if (pct(sub.score, sub.total) > pct(e.best.score, e.best.total)) e.best = sub;
-                });
-                st.exercises = Array.from(byEx.values());
-                st.avg = st.exercises.length ? Math.round(st.exercises.reduce((a, e) => a + pct(e.best.score, e.best.total), 0) / st.exercises.length) : null;
-                st.last = st.subs.length ? st.subs[0].created_at : null;
-            });
-            list.sort((a, b) => String(a.cls).localeCompare(String(b.cls)) || String(a.name).localeCompare(String(b.name)));
-            return list;
-        }
-
-        window.toggleStudentRow = function(i) {
-            const st = resultsSummaries[i];
-            if (!st) return;
-            if (expandedStudents.has(st.key)) expandedStudents.delete(st.key); else expandedStudents.add(st.key);
-            window.renderResults();
-        };
-
-        window.renderResults = function() {
-            const body = document.getElementById('results-body');
-            const status = document.getElementById('results-status');
-            const search = normName(document.getElementById('results-search').value);
-
-            const on = 'px-3 py-2 text-sm bg-indigo-600 text-white', off = 'px-3 py-2 text-sm bg-white text-gray-700 hover:bg-gray-50';
-            document.getElementById('results-view-students').className = resultsView === 'students' ? on : off;
-            document.getElementById('results-view-all').className = resultsView === 'all' ? on : off;
-
-            const th = 'px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase';
-            const summaries = buildStudentSummaries();
-            const active = summaries.filter(s => s.subs.length).length;
-            status.textContent = `${resultsData.subs.length} submission${resultsData.subs.length === 1 ? '' : 's'} from ${active} student${active === 1 ? '' : 's'}` +
-                (resultsData.loadedAt ? ` · loaded ${new Date(resultsData.loadedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}` : '') +
-                (resultsData.truncated ? ` · only the newest ${RESULTS_LIMIT} are loaded, choose a class to narrow it down` : '');
-
-            if (resultsView === 'all') {
-                const rows = resultsData.subs.filter(s => !search || normName(s.student_name).includes(search));
-                if (rows.length === 0) { body.innerHTML = '<div class="text-center py-10 text-gray-500">No submissions found.</div>'; return; }
-                const shown = rows.slice(0, RESULTS_ROW_CAP);
-                body.innerHTML = `<table class="min-w-full divide-y divide-gray-200"><thead class="bg-gray-50"><tr>
-                        <th class="${th}">Student</th><th class="${th}">Class</th><th class="${th}">Exercise</th><th class="${th}">Score</th><th class="${th}">Date</th>
-                    </tr></thead><tbody class="bg-white divide-y divide-gray-200">` +
-                    shown.map(s => `<tr class="hover:bg-gray-50">
-                        <td class="px-4 py-3 text-sm font-medium text-gray-900">${escapeHtml(s.student_name)}</td>
-                        <td class="px-4 py-3 text-sm text-gray-500">${escapeHtml(s.class_name)}</td>
-                        <td class="px-4 py-3 text-sm text-gray-500">${escapeHtml(s.exercise_title)}</td>
-                        <td class="px-4 py-3 text-sm font-bold ${pctColor(pct(s.score, s.total))}">${s.score} / ${s.total}</td>
-                        <td class="px-4 py-3 text-xs text-gray-500">${fmtDate(s.created_at)}</td></tr>`).join('') +
-                    `</tbody></table>` +
-                    (rows.length > shown.length ? `<p class="text-xs text-gray-500 mt-3">Showing the newest ${shown.length} of ${rows.length}. Use Export CSV to get all of them.</p>` : '');
-                return;
-            }
-
-            resultsSummaries = summaries.filter(s => !search || normName(s.name).includes(search));
-            if (resultsSummaries.length === 0) {
-                body.innerHTML = '<div class="text-center py-10 text-gray-500">' + (resultsData.loadedAt ? 'No students or submissions found.' : 'Loading...') + '</div>';
-                return;
-            }
-            body.innerHTML = `<table class="min-w-full divide-y divide-gray-200"><thead class="bg-gray-50"><tr>
-                    <th class="${th}">Student</th><th class="${th}">Class</th><th class="${th}">Exercises done</th><th class="${th}">Average (best attempts)</th><th class="${th}">Attempts</th><th class="${th}">Last activity</th>
-                </tr></thead><tbody class="bg-white divide-y divide-gray-200">` +
-                resultsSummaries.map((st, i) => {
-                    const open = expandedStudents.has(st.key);
-                    const detail = open ? `<tr class="bg-gray-50"><td colspan="6" class="px-4 py-3">` +
-                        (st.exercises.length === 0 ? '<span class="text-sm text-gray-500">No submissions yet.</span>' :
-                        `<table class="min-w-full text-sm"><thead><tr class="text-xs text-gray-500 uppercase"><th class="text-left py-1 pr-4">Exercise</th><th class="text-left py-1 pr-4">Attempts</th><th class="text-left py-1 pr-4">Best</th><th class="text-left py-1 pr-4">Latest</th><th class="text-left py-1">Last date</th></tr></thead><tbody>` +
-                        st.exercises.map(e => `<tr class="border-t border-gray-200"><td class="py-1.5 pr-4">${escapeHtml(e.title)}</td><td class="py-1.5 pr-4">${e.attempts}</td>
-                            <td class="py-1.5 pr-4 font-semibold ${pctColor(pct(e.best.score, e.best.total))}">${e.best.score} / ${e.best.total}</td>
-                            <td class="py-1.5 pr-4">${e.latest.score} / ${e.latest.total}</td><td class="py-1.5 text-xs text-gray-500">${fmtDate(e.latest.created_at)}</td></tr>`).join('') +
-                        `</tbody></table>`) + `</td></tr>` : '';
-                    return `<tr class="hover:bg-gray-50 cursor-pointer" onclick="window.toggleStudentRow(${i})">
-                        <td class="px-4 py-3 text-sm font-medium text-gray-900"><span class="text-gray-400 mr-1">${open ? '&#9662;' : '&#9656;'}</span>${escapeHtml(st.name)}${st.inRoster ? '' : ' <span class="ml-1 text-xs text-gray-500 bg-gray-100 border border-gray-200 rounded px-1.5 py-0.5">not on class list</span>'}</td>
-                        <td class="px-4 py-3 text-sm text-gray-500">${escapeHtml(st.cls)}</td>
-                        <td class="px-4 py-3 text-sm text-gray-700">${st.exercises.length}</td>
-                        <td class="px-4 py-3 text-sm font-bold ${st.avg === null ? 'text-gray-400' : pctColor(st.avg)}">${st.avg === null ? '&mdash;' : st.avg + '%'}</td>
-                        <td class="px-4 py-3 text-sm text-gray-700">${st.subs.length}</td>
-                        <td class="px-4 py-3 text-xs text-gray-500">${st.last ? fmtDate(st.last) : 'No activity'}</td></tr>${detail}`;
-                }).join('') + `</tbody></table>`;
-        };
-
-        window.exportResultsCsv = function() {
-            const summaries = buildStudentSummaries();
-            const rows = [];
-            summaries.forEach(st => st.subs.forEach(sub => rows.push([st.name, st.cls, sub.exercise_title, sub.score, sub.total, pct(sub.score, sub.total) + '%', sub.created_at])));
-            if (rows.length === 0) { alert('Nothing to export yet.'); return; }
-            // a leading = + - @ would be run as a formula by Excel, so neutralise it
-            const cell = v => { let s = String(v ?? ''); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return '"' + s.replace(/"/g, '""') + '"'; };
-            const csv = '﻿' + [['Student', 'Class', 'Exercise', 'Score', 'Total', 'Percent', 'Date']].concat(rows).map(r => r.map(cell).join(',')).join('\r\n');
-            const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-            const a = document.createElement('a');
-            a.href = url; a.download = 'results-' + (resultsData.cls || 'all-classes').replace(/[^\w-]+/g, '_') + '.csv';
-            document.body.appendChild(a); a.click(); a.remove();
-            setTimeout(() => URL.revokeObjectURL(url), 1000);
-        };
 
         // Run fetch on load if connected
         if(isDbConnected) {
