@@ -11,6 +11,9 @@
     <!-- Supabase JS -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
+    <!-- SheetJS (reads Excel files for exercise import) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
     <style>
         body { font-family: 'Inter', system-ui, sans-serif; background-color: #f3f4f6; }
         .fade-in { animation: fadeIn 0.3s ease-in-out; }
@@ -198,6 +201,13 @@
                     <div class="border-t border-gray-200 pt-4 mb-4">
                         <div class="mb-4">
                             <h4 class="font-semibold text-gray-800 mb-2">Questions</h4>
+                            <div class="flex flex-wrap items-center gap-3 mb-3 p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
+                                <span class="text-sm font-medium text-emerald-800">Import from Excel:</span>
+                                <button type="button" onclick="document.getElementById('ex-import-file').click()" class="text-sm bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-1.5 px-3 rounded-lg">Choose file...</button>
+                                <button type="button" onclick="window.adminDownloadTemplate()" class="text-sm text-emerald-700 underline hover:text-emerald-900">Download template</button>
+                                <input type="file" id="ex-import-file" accept=".xlsx,.xls,.csv" class="hidden" onchange="window.adminImportExercises(this)">
+                            </div>
+                            <div id="ex-import-msg" class="hidden"></div>
                             <div class="flex flex-wrap gap-2">
                                 <button type="button" onclick="window.adminAddQuestionBlock('mcq')" class="add-q-btn">+ Multiple choice</button>
                                 <button type="button" onclick="window.adminAddQuestionBlock('passage')" class="add-q-btn">+ Reading passage</button>
@@ -1680,6 +1690,268 @@ window.adminAddQuestionBlock = function(type) {
             a.href = url; a.download = 'results-' + (resultsData.cls || 'all-classes').replace(/[^\w-]+/g, '_') + '.csv';
             document.body.appendChild(a); a.click(); a.remove();
             setTimeout(() => URL.revokeObjectURL(url), 1000);
+        };
+
+// =====================================================
+        // Import exercises from Excel (.xlsx / .xls / .csv)
+        // One row per question. Columns: Type | Question | Option 1..8 | Correct
+        // =====================================================
+
+        const IMPORT_TYPES = {
+            mcq: 'mcq', mc: 'mcq', multiplechoice: 'mcq',
+            tf: 'tf', truefalse: 'tf', trueorfalse: 'tf',
+            reorder: 'reorder', reordering: 'reorder', order: 'reorder', ordering: 'reorder',
+            match: 'match', matching: 'match',
+            link: 'link', linking: 'link',
+            passage: 'passage', reading: 'passage', readingpassage: 'passage', text: 'passage',
+            passageq: 'passage_q', passagequestion: 'passage_q', passagequestions: 'passage_q', pq: 'passage_q'
+        };
+        const IMPORT_TRUE = ['true', 't', 'yes', 'y', '1', 'vrai', 'v', 'صح', 'صحيح', 'نعم'];
+        const IMPORT_FALSE = ['false', 'f', 'no', 'n', '0', 'faux', 'خطأ', 'خطا', 'غلط', 'لا'];
+
+        function importKey(s) { return String(s ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ''); }
+
+        function importCell(v) {
+            if (v === null || v === undefined) return '';
+            if (typeof v === 'boolean') return v ? 'TRUE' : 'FALSE';
+            return String(v).trim();
+        }
+
+        function buildImportMcq(text, raw, correctRaw) {
+            if (!text) return { error: 'the question text is empty' };
+            const filled = raw.filter(Boolean);
+            if (filled.length < 2) return { error: 'needs at least 2 options' };
+            if (filled.length > 4) return { error: 'multiple choice supports up to 4 options' };
+            if (!correctRaw) return { error: 'the Correct column is empty (use A, B, C, D, a number 1-4, or the option text)' };
+
+            const lower = correctRaw.toLowerCase();
+            let pos = raw.findIndex(o => o && o.toLowerCase() === lower);                     // exact option text
+            if (pos < 0 && /^[a-j]$/i.test(correctRaw)) pos = correctRaw.toUpperCase().charCodeAt(0) - 65;   // A, B, C...
+            if (pos < 0 && /^\d+$/.test(correctRaw)) pos = parseInt(correctRaw, 10) - 1;       // 1, 2, 3...
+            if (pos < 0 || pos >= raw.length || !raw[pos]) return { error: `could not match the correct answer "${correctRaw}" to one of the options` };
+
+            const options = [];
+            let correctIndex = -1;
+            raw.forEach((o, i) => { if (!o) return; if (i === pos) correctIndex = options.length; options.push(o); });
+            return { data: { type: 'mcq', text, options, correctIndex: String(correctIndex) } };
+        }
+
+        // rows = array of arrays (first row with a "Type" cell is the header). Returns { questions, errors }.
+        function parseExerciseRows(rows, rowOffset = 0) {
+            const questions = [];
+            const errors = [];
+            const fail = (rowNo, msg) => errors.push(`Row ${rowNo}: ${msg}`);
+
+            const h = rows.findIndex(r => (r || []).some(c => importKey(c) === 'type'));
+            if (h < 0) return { questions, errors: ['Could not find the header row. The first row must contain the headers: Type, Question, Option 1, Option 2 ... Correct. Download the template to see the layout.'] };
+
+            const col = { type: -1, question: -1, correct: -1, options: [] };
+            rows[h].forEach((c, i) => {
+                const k = importKey(c);
+                if (k === 'type') col.type = i;
+                else if (['question', 'text', 'statement', 'instruction'].includes(k)) { if (col.question < 0) col.question = i; }
+                else if (['correct', 'answer', 'correctanswer'].includes(k)) col.correct = i;
+                else if (/^(option|opt|item|pair|choice)\d+$/.test(k)) col.options.push(i);
+            });
+            if (col.question < 0) return { questions, errors: ['The header row needs a "Question" column.'] };
+            if (col.options.length === 0) return { questions, errors: ['The header row needs "Option 1", "Option 2"... columns.'] };
+
+            let currentPassage = null;
+
+            for (let i = h + 1; i < rows.length; i++) {
+                const r = rows[i] || [];
+                if (!r.some(c => importCell(c) !== '')) continue;
+                const rowNo = i + 1 + rowOffset;
+                const typeRaw = importCell(r[col.type]);
+                if (typeRaw.startsWith('#')) continue;                     // comment row
+
+                const type = IMPORT_TYPES[importKey(typeRaw)];
+                if (!type) { fail(rowNo, `unknown type "${typeRaw}". Use mcq, tf, reorder, match, link, passage or passage_q.`); continue; }
+
+                const text = importCell(r[col.question]);
+                const raw = col.options.map(ci => importCell(r[ci]));
+                const correctRaw = col.correct >= 0 ? importCell(r[col.correct]) : '';
+
+                if (type !== 'passage_q') currentPassage = null;
+
+                if (type === 'mcq') {
+                    const res = buildImportMcq(text, raw, correctRaw);
+                    if (res.error) fail(rowNo, res.error); else questions.push(res.data);
+
+                } else if (type === 'tf') {
+                    const c = correctRaw.toLowerCase();
+                    if (!text) fail(rowNo, 'the statement is empty');
+                    else if (IMPORT_TRUE.includes(c)) questions.push({ type: 'tf', text, correct: true });
+                    else if (IMPORT_FALSE.includes(c)) questions.push({ type: 'tf', text, correct: false });
+                    else fail(rowNo, 'the Correct column must be TRUE or FALSE');
+
+                } else if (type === 'reorder') {
+                    const items = raw.filter(Boolean);
+                    if (items.length < 2) fail(rowNo, 'reordering needs at least 2 items (put them in the correct order in the Option columns)');
+                    else questions.push({ type: 'reorder', text, items });
+
+                } else if (type === 'match' || type === 'link') {
+                    const pairs = [];
+                    let bad = false;
+                    raw.forEach(cell => {
+                        if (!cell) return;
+                        const idx = cell.indexOf('|');
+                        const left = idx < 0 ? '' : cell.slice(0, idx).trim();
+                        const right = idx < 0 ? '' : cell.slice(idx + 1).trim();
+                        if (!left || !right) { bad = true; return; }
+                        pairs.push({ left, right });
+                    });
+                    if (bad) fail(rowNo, `every pair must look like "left | right" (got a cell without both sides)`);
+                    else if (pairs.length < 2) fail(rowNo, `${type} needs at least 2 pairs, each written as "left | right"`);
+                    else questions.push({ type, text, pairs });
+
+                } else if (type === 'passage') {
+                    if (!text) { fail(rowNo, 'the passage text is empty (put it in the Question column)'); continue; }
+                    currentPassage = { type: 'passage', passage: text, questions: [], rowNo };
+                    questions.push(currentPassage);
+
+                } else if (type === 'passage_q') {
+                    if (!currentPassage) { fail(rowNo, 'a passage_q row must come right after a passage row'); continue; }
+                    const res = buildImportMcq(text, raw, correctRaw);
+                    if (res.error) fail(rowNo, res.error); else currentPassage.questions.push(res.data);
+                }
+            }
+
+            questions.forEach(q => {
+                if (q.type === 'passage') {
+                    if (q.questions.length === 0) errors.push(`Row ${q.rowNo}: this passage has no valid passage_q questions after it`);
+                    delete q.rowNo;
+                }
+            });
+            if (questions.length === 0 && errors.length === 0) errors.push('No questions were found in the file.');
+            return { questions, errors };
+        }
+
+        function builderBlockIsEmpty(block) {
+            const filled = Array.from(block.querySelectorAll('input[type="text"], textarea')).some(el => el.value.trim() !== '');
+            const chosen = block.querySelector('input[type="radio"]:checked');
+            return !filled && !chosen;
+        }
+
+        function loadImportedQuestions(questions) {
+            const list = document.getElementById('admin-questions-list');
+            const blocks = list.querySelectorAll('.admin-q-block');
+            if (blocks.length === 1 && builderBlockIsEmpty(blocks[0])) list.innerHTML = '';
+            questions.forEach(q => {
+                window.adminAddQuestionBlock(q.type);
+                fillBlock(list.lastElementChild, q);
+            });
+        }
+
+        function showImportMessage(kind, title, lines) {
+            const el = document.getElementById('ex-import-msg');
+            const styles = kind === 'ok' ? 'bg-green-50 border border-green-300 text-green-800' : 'bg-red-50 border border-red-300 text-red-800';
+            el.className = `mb-3 text-sm rounded-lg p-3 ${styles}`;
+            const shown = (lines || []).slice(0, 15);
+            const more = (lines || []).length - shown.length;
+            el.innerHTML = `<p class="font-semibold">${escapeHtml(title)}</p>` +
+                (shown.length ? `<ul class="list-disc ml-5 mt-1 space-y-0.5">${shown.map(l => `<li>${escapeHtml(l)}</li>`).join('')}</ul>` : '') +
+                (more > 0 ? `<p class="mt-1">...and ${more} more.</p>` : '');
+        }
+
+        // Works on the raw bytes of the file, so it can be tested without a file picker
+        function importExerciseBuffer(buffer) {
+            if (typeof XLSX === 'undefined') {
+                showImportMessage('err', 'The Excel reader could not be loaded. Check your internet connection and reload the page.');
+                return false;
+            }
+            let rows, offset = 0;
+            try {
+                const wb = XLSX.read(buffer, { type: 'array' });
+                const sheetName = wb.SheetNames.find(n => n.trim().toLowerCase() === 'questions') || wb.SheetNames[0];
+                const ws = wb.Sheets[sheetName];
+                if (ws['!ref']) offset = XLSX.utils.decode_range(ws['!ref']).s.r;   // rows skipped before the first used row
+                rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true });
+            } catch (e) {
+                console.error(e);
+                showImportMessage('err', 'Could not read this file. Please use an .xlsx, .xls or .csv file.');
+                return false;
+            }
+            const { questions, errors } = parseExerciseRows(rows, offset);
+            if (errors.length) {
+                showImportMessage('err', `Nothing was imported - please fix ${errors.length === 1 ? 'this problem' : 'these problems'} in the file and try again:`, errors);
+                return false;
+            }
+            loadImportedQuestions(questions);
+            const total = questions.reduce((n, q) => n + (q.type === 'passage' ? q.questions.length : 1), 0);
+            showImportMessage('ok', `Imported ${questions.length} question block${questions.length === 1 ? '' : 's'} (${total} scored question${total === 1 ? '' : 's'}). Review them below, set the title and class, then press Publish.`);
+            return true;
+        }
+
+        window.adminImportExercises = async function(input) {
+            const file = input.files && input.files[0];
+            if (!file) return;
+            try {
+                const buffer = file.arrayBuffer
+                    ? await file.arrayBuffer()
+                    : await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsArrayBuffer(file); });
+                importExerciseBuffer(buffer);
+            } catch (e) {
+                console.error(e);
+                showImportMessage('err', 'Could not read this file.');
+            }
+            input.value = '';    // lets the same file be chosen again
+        };
+
+        function buildTemplateWorkbook() {
+            const header = ['Type', 'Question', 'Option 1', 'Option 2', 'Option 3', 'Option 4', 'Option 5', 'Option 6', 'Option 7', 'Option 8', 'Correct'];
+            const row = (type, question, options, correct) => {
+                const r = [type, question];
+                for (let i = 0; i < 8; i++) r.push(options[i] || '');
+                r.push(correct || '');
+                return r;
+            };
+            const questions = [
+                header,
+                row('mcq', 'What is the capital of France?', ['Berlin', 'Paris', 'Madrid', 'Rome'], 'B'),
+                row('tf', 'The Earth is flat.', [], 'FALSE'),
+                row('reorder', 'Put the sentences in the correct order', ['I wake up.', 'I eat breakfast.', 'I go to school.', 'I come home.'], ''),
+                row('match', 'Match each word with its meaning', ['big | large', 'small | tiny', 'happy | glad'], ''),
+                row('link', 'Link each country with its capital', ['France | Paris', 'Italy | Rome', 'Spain | Madrid'], ''),
+                row('passage', 'Anna has a black cat. The cat likes to sleep all day on the sofa.', [], ''),
+                row('passage_q', 'Who has a cat?', ['Anna', 'Bob', 'Carl', 'Dan'], 'A'),
+                row('passage_q', 'What colour is the cat?', ['White', 'Black', 'Red', 'Blue'], 'Black')
+            ];
+            const help = [
+                ['How to fill in the Questions sheet'],
+                [''],
+                ['One row = one question. Keep the header row. Delete the example rows and add your own.'],
+                ['Rows whose Type starts with # are ignored, so you can use them for notes.'],
+                [''],
+                ['Type = mcq (multiple choice)'],
+                ['   Question: the question. Option 1-4: the answers (2 to 4). Correct: A, B, C or D (or 1-4, or the exact text of the right option).'],
+                ['Type = tf (true / false)'],
+                ['   Question: the statement. Correct: TRUE or FALSE.'],
+                ['Type = reorder'],
+                ['   Question: the instruction (optional). Option 1, 2, 3...: the items in the CORRECT order. Students see them shuffled.'],
+                ['Type = match  or  link'],
+                ['   Question: the instruction (optional). Each Option cell is one pair written as: left | right   (use the | character).'],
+                ['Type = passage (reading text with several questions)'],
+                ['   Question: the text students read. Then put one or more passage_q rows directly underneath.'],
+                ['Type = passage_q (a question about the passage above)'],
+                ['   Filled in exactly like an mcq row.'],
+                [''],
+                ['The exercise title and the class are chosen on the website, not in this file.'],
+                ['Scoring: 1 point per mcq / tf / passage_q, 1 point per correct pair in match / link, 1 point for a fully correct reorder.']
+            ];
+            const wb = XLSX.utils.book_new();
+            const ws = XLSX.utils.aoa_to_sheet(questions);
+            ws['!cols'] = [{ wch: 11 }, { wch: 46 }, ...Array(8).fill({ wch: 18 }), { wch: 10 }];
+            XLSX.utils.book_append_sheet(wb, ws, 'Questions');
+            const wsHelp = XLSX.utils.aoa_to_sheet(help);
+            wsHelp['!cols'] = [{ wch: 130 }];
+            XLSX.utils.book_append_sheet(wb, wsHelp, 'Instructions');
+            return wb;
+        }
+
+        window.adminDownloadTemplate = function() {
+            if (typeof XLSX === 'undefined') { alert('The Excel library could not be loaded. Check your internet connection and reload the page.'); return; }
+            XLSX.writeFile(buildTemplateWorkbook(), 'exercise-template.xlsx');
         };
 
         // Run fetch on load if connected
