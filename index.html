@@ -24,6 +24,8 @@
         .mcq-option { transition: all 0.2s; }
         .mcq-option:hover { background-color: #e0e7ff; border-color: #4f46e5; }
         .mcq-selected { background-color: #4f46e5 !important; color: white !important; border-color: #4f46e5 !important; }
+        .mcq-correct { background-color: #dcfce7 !important; border-color: #16a34a !important; color: #166534 !important; }
+        .mcq-wrong { background-color: #fee2e2 !important; border-color: #dc2626 !important; color: #991b1b !important; }
         .tab-active { border-bottom-width: 2px; border-color: #4f46e5; color: #4f46e5; }
         .tab-inactive { color: #6b7280; border-bottom-width: 2px; border-color: transparent; }
         .tab-inactive:hover { color: #374151; border-color: #d1d5db; }
@@ -92,9 +94,11 @@
                         <h4 class="text-lg font-semibold text-gray-800 mb-4">Submission Details</h4>
                         <div class="max-w-md mb-6">
                             <label id="student-name-label" class="block text-sm font-medium text-gray-700 mb-1">Your Full Name</label>
-                            <select id="student-roster-select" class="hidden w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 bg-white"></select>
-                            <input type="text" id="student-name-input" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 bg-white" placeholder="e.g. Jane Doe">
+                            <select id="student-roster-select" onchange="window.refreshAttemptInfo()" class="hidden w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 bg-white"></select>
+                            <p id="roster-help" class="hidden text-xs text-gray-500 mt-1">Can't see your name? Ask your teacher.</p>
+                            <input type="text" id="student-name-input" onchange="window.refreshAttemptInfo()" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 bg-white" placeholder="e.g. Jane Doe">
                         </div>
+                        <p id="attempt-info" class="hidden text-sm mb-3 font-medium"></p>
                         <button id="submit-exercise-btn" onclick="window.submitExercise()" class="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold py-2.5 px-6 rounded-lg transition-colors">
                             Submit Answers
                         </button>
@@ -198,6 +202,34 @@
                             <option value="" disabled selected>Select Class</option>
                         </select>
                     </div>
+                    <div class="mb-4 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                        <h4 class="font-semibold text-gray-800 mb-3">Student settings</h4>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-xs font-medium text-gray-500 mb-1">Attempts allowed per student</label>
+                                <select id="ex-set-attempts" class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white">
+                                    <option value="0">Unlimited</option>
+                                    <option value="1">1 (once only)</option>
+                                    <option value="2">2</option>
+                                    <option value="3">3</option>
+                                    <option value="5">5</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-500 mb-1">After submitting, students see</label>
+                                <select id="ex-set-result" class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white">
+                                    <option value="score">Their score</option>
+                                    <option value="answers">Their score and the correct answers</option>
+                                    <option value="none">Nothing (just "submitted")</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="flex flex-wrap gap-x-6 gap-y-2 mt-3">
+                            <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer"><input type="checkbox" id="ex-set-shuffle-q" class="w-4 h-4"> Shuffle the order of the questions</label>
+                            <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer"><input type="checkbox" id="ex-set-shuffle-o" class="w-4 h-4"> Shuffle the answer options</label>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-2">Attempts are counted per student and enforced by the database. They are most reliable when the class has a student list (Classes tab), because students then pick their name instead of typing it.</p>
+                    </div>
                     <div class="border-t border-gray-200 pt-4 mb-4">
                         <div class="mb-4">
                             <h4 class="font-semibold text-gray-800 mb-2">Questions</h4>
@@ -251,6 +283,7 @@
                         </div>
                         <button onclick="window.loadResults(true)" class="px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white hover:bg-gray-50">Refresh</button>
                         <button onclick="window.exportResultsCsv()" class="px-3 py-2 text-sm border border-gray-300 rounded-lg bg-white hover:bg-gray-50">Export CSV</button>
+                        <button onclick="window.openBulkDelete()" class="px-3 py-2 text-sm border border-red-300 text-red-600 rounded-lg bg-white hover:bg-red-50">Delete results...</button>
                     </div>
                     <p id="results-status" class="text-xs text-gray-500 mb-3"></p>
                     <div id="results-body" class="overflow-x-auto"></div>
@@ -258,6 +291,39 @@
             </div>
         </div>
     </main>
+
+    <!-- Move student modal -->
+    <div id="move-modal" class="hidden fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm">
+            <h3 class="text-lg font-bold mb-1">Move student</h3>
+            <p id="move-modal-text" class="text-sm text-gray-600 mb-3"></p>
+            <select id="move-modal-class" class="w-full px-3 py-2 border border-gray-300 rounded-lg mb-2"></select>
+            <p id="move-modal-msg" class="text-sm text-red-600 mb-2"></p>
+            <div class="flex justify-end gap-2">
+                <button onclick="window.closeMoveModal()" class="px-4 py-2 text-sm border border-gray-300 rounded-lg">Cancel</button>
+                <button onclick="window.confirmMoveStudent()" class="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg">Move</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bulk delete results modal -->
+    <div id="bulk-modal" class="hidden fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-xl p-6 w-full max-w-md">
+            <h3 class="text-lg font-bold mb-1">Delete results</h3>
+            <p class="text-sm text-gray-600 mb-3">Choose which saved results to delete. This cannot be undone. Students can then try the exercise again if you set an attempt limit.</p>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Class</label>
+            <select id="bulk-class" class="w-full px-3 py-2 border border-gray-300 rounded-lg mb-3"></select>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Exercise</label>
+            <select id="bulk-exercise" class="w-full px-3 py-2 border border-gray-300 rounded-lg mb-3"></select>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Only results submitted before (optional)</label>
+            <input id="bulk-before" type="date" class="w-full px-3 py-2 border border-gray-300 rounded-lg mb-3">
+            <p id="bulk-msg" class="text-sm mb-2 text-red-600"></p>
+            <div class="flex justify-end gap-2">
+                <button onclick="window.closeBulkDelete()" class="px-4 py-2 text-sm border border-gray-300 rounded-lg">Cancel</button>
+                <button onclick="window.confirmBulkDelete()" class="px-4 py-2 text-sm bg-red-600 text-white rounded-lg">Delete</button>
+            </div>
+        </div>
+    </div>
 
     <footer class="bg-white border-t border-gray-200 text-center py-4 text-sm text-gray-500 flex-shrink-0">
         © Classroom Portal • All rights reserved • <span onclick="window.showAdminLogin()" class="cursor-pointer" aria-label="Admin Login">.</span>
@@ -436,10 +502,13 @@
         }
 
         // Admin lists show hidden items too (marked as hidden)
-        async function fetchAdminRows(table, cols) {
+        async function fetchAdminRows(table, cols, extraSets = [['is_hidden'], []]) {
             const run = c => supabaseClient.from(table).select(c).order('created_at', { ascending: false });
-            let res = await run(cols + ', is_hidden');
-            if (res.error) res = await run(cols);   // column not added yet
+            let res;
+            for (const extra of extraSets) {            // richest column set first; older databases fall back
+                res = await run([cols, ...extra].join(', '));
+                if (!res.error) return res;
+            }
             return res;
         }
 
@@ -451,7 +520,7 @@
 
         async function fetchAdminExercises() {
             if (!isDbConnected) return;
-            const { data, error } = await fetchAdminRows('portal_exercises', 'id, title, target_class, questions, created_at');
+            const { data, error } = await fetchAdminRows('portal_exercises', 'id, title, target_class, questions, created_at', [['is_hidden', 'settings'], ['is_hidden'], []]);
             if (!error && data) { adminExercises = data; renderAdminExercises(); }
         }
 
@@ -494,7 +563,7 @@
                 <li class="flex justify-between items-center px-4 py-3 gap-4 ${ex.is_hidden ? 'bg-gray-100' : 'bg-white'}">
                     <div class="${ex.is_hidden ? 'opacity-60' : ''}">
                         <span class="font-medium">${escapeHtml(ex.title)}</span>${hiddenBadge(ex)}
-                        <span class="block text-xs text-gray-500">${escapeHtml(ex.target_class)} &bull; ${(ex.questions || []).length} questions</span>
+                        <span class="block text-xs text-gray-500">${escapeHtml(ex.target_class)} &bull; ${(ex.questions || []).length} questions${describeSettings(ex.settings) ? ' &bull; ' + escapeHtml(describeSettings(ex.settings)) : ''}</span>
                     </div>
                     <div class="flex gap-4 flex-shrink-0">
                         ${visibilityButton('exercise', ex)}
@@ -612,7 +681,7 @@ window.adminDeleteLesson = async function(id) {
                     <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-200 flex justify-between items-center cursor-pointer hover:border-indigo-400" onclick="window.openExercise('${ex.id}')">
                         <div>
                             <h3 class="text-lg font-bold">${ex.title}</h3>
-                            <p class="text-sm text-gray-500">${ex.questions.length} Questions</p>
+                            <p class="text-sm text-gray-500">${ex.questions.length} Questions${normSettings(ex.settings).maxAttempts ? ' &bull; ' + (normSettings(ex.settings).maxAttempts === 1 ? 'one attempt' : normSettings(ex.settings).maxAttempts + ' attempts') + ' allowed' : ''}</p>
                         </div>
                         <button class="text-indigo-600 font-medium">Start</button>
                     </div>`;
@@ -630,10 +699,20 @@ window.adminDeleteLesson = async function(id) {
             document.getElementById('student-exercises-container').classList.add('hidden');
             document.getElementById('active-exercise-view').classList.remove('hidden');
             document.getElementById('active-exercise-title').textContent = ex.title;
-            setupNameField();
+            setupNameField().then(() => window.refreshAttemptInfo()).catch(() => {});
             document.getElementById('submit-exercise-btn').disabled = false;
             document.getElementById('submission-error').classList.add('hidden');
             document.getElementById('submission-success').classList.add('hidden');
+
+            // Settings chosen by the teacher for this exercise
+            exSettings = normSettings(ex.settings);
+            exSubmitted = false;
+            optOrder = {};
+            attemptState = { used: null, max: exSettings.maxAttempts };
+            exOrder = exSettings.shuffleQuestions ? shuffledIndices(ex.questions.length) : ex.questions.map((_, i) => i);
+            const qc = document.getElementById('questions-container');
+            qc.classList.remove('pointer-events-none'); qc.removeAttribute('inert');
+            document.getElementById('attempt-info').classList.add('hidden');
 
             // Starting state for the interactive question types
             ex.questions.forEach((q, qi) => {
@@ -646,25 +725,28 @@ window.adminDeleteLesson = async function(id) {
                 }
             });
 
-            document.getElementById('questions-container').innerHTML = ex.questions.map((q, qi) => {
+            // exOrder = the order the student sees; answers stay keyed by the question's real index
+            qc.innerHTML = exOrder.map((qi, pos) => {
+                const q = ex.questions[qi];
                 const t = q.type || 'mcq';
-                const n = qi + 1;
+                const n = pos + 1;
                 let heading = '';
                 let body = '';
 
                 if (t === 'mcq') {
                     heading = `Q${n}. ${escapeHtml(q.text)}`;
-                    body = mcqOptionsHtml(String(qi), q);
+                    body = mcqOptionsHtml(String(qi), q, exSettings.shuffleOptions);
                 } else if (t === 'tf') {
                     heading = `Q${n}. ${escapeHtml(q.text)}`;
-                    body = mcqOptionsHtml(String(qi), { options: ['True', 'False'] });
+                    body = mcqOptionsHtml(String(qi), { options: ['True', 'False'] }, false);
                 } else if (t === 'passage') {
                     heading = `Q${n}. Read the text and answer the questions`;
                     body = `<div class="p-4 bg-gray-50 border border-gray-200 rounded-lg whitespace-pre-wrap leading-relaxed">${escapeHtml(q.passage)}</div>` +
                         (q.questions || []).map((sq, si) => `
                             <div class="mt-5">
                                 <p class="font-medium mb-2">${n}.${si + 1} ${escapeHtml(sq.text)}</p>
-                                ${mcqOptionsHtml(`${qi}-${si}`, sq)}
+                                ${mcqOptionsHtml(`${qi}-${si}`, sq, exSettings.shuffleOptions)}
+                                <div id="fb-${qi}-${si}"></div>
                             </div>`).join('');
                 } else {
                     heading = `Q${n}. ${escapeHtml(q.text)}`;
@@ -675,6 +757,7 @@ window.adminDeleteLesson = async function(id) {
                     <div class="bg-white p-5 rounded-xl border border-gray-200">
                         <h4 class="font-semibold mb-3">${heading}</h4>
                         ${body}
+                        <div id="fb-${qi}"></div>
                     </div>`;
             }).join('');
 
@@ -711,10 +794,13 @@ window.adminDeleteLesson = async function(id) {
 
         // ---- Multiple choice (also used for the questions inside a reading passage) ----
 
-        function mcqOptionsHtml(key, q) {
-            return `<div class="space-y-2" id="group-${key}">` + q.options.map((opt, oIdx) => `
-                <div class="mcq-option p-3 border border-gray-300 rounded-lg cursor-pointer bg-gray-50" onclick="window.selectOption('${key}', ${oIdx}, this)">
-                    ${escapeHtml(opt)}
+function mcqOptionsHtml(key, q, shuffle) {
+            // The student may see the options in a shuffled order, but the answer is stored as the option's real index
+            const order = shuffle ? shuffledIndices(q.options.length) : q.options.map((_, i) => i);
+            optOrder[key] = order;
+            return `<div class="space-y-2" id="group-${key}">` + order.map(oIdx => `
+                <div class="mcq-option p-3 border border-gray-300 rounded-lg cursor-pointer bg-gray-50" data-oidx="${oIdx}" onclick="window.selectOption('${key}', ${oIdx}, this)">
+                    ${escapeHtml(q.options[oIdx])}
                 </div>`).join('') + `</div>`;
         }
 
@@ -876,6 +962,114 @@ window.adminDeleteLesson = async function(id) {
             return { score, total };
         }
 
+// ---- Attempts, submitting, and what the student sees afterwards ----
+
+        let exSettings = normSettings({});
+        let exOrder = [];          // order in which the student sees the questions (indices into ex.questions)
+        let optOrder = {};         // answer key -> order in which its options are shown
+        let exSubmitted = false;
+        let attemptState = { used: null, max: 0 };
+
+        const escapeLike = s => String(s).replace(/[\\%_]/g, c => '\\' + c);
+
+        // How many times this student already submitted this exercise (null = could not find out)
+        async function countAttempts(ex, student) {
+            if (!isDbConnected || !ex || !ex.id) return null;
+            let q = supabaseClient.from('portal_submissions').select('id', { count: 'exact', head: true }).eq('exercise_id', ex.id);
+            if (student.id) q = q.eq('student_id', student.id);
+            else q = q.is('student_id', null).eq('class_name', currentStudentClass).ilike('student_name', escapeLike(student.name));
+            const { count, error } = await q;
+            return error ? null : (count ?? 0);
+        }
+
+        function showAttemptInfo(text, bad) {
+            const el = document.getElementById('attempt-info');
+            el.textContent = text;
+            el.className = 'text-sm mb-3 font-medium ' + (bad ? 'text-red-600' : 'text-indigo-700');
+        }
+
+        window.refreshAttemptInfo = async function() {
+            const ex = activeExerciseData;
+            if (!ex || exSubmitted) return;
+            const btn = document.getElementById('submit-exercise-btn');
+            const el = document.getElementById('attempt-info');
+            const max = exSettings.maxAttempts;
+            attemptState = { used: null, max };
+            btn.disabled = false;
+            if (!max) { el.classList.add('hidden'); return; }
+
+            const student = getSubmittingStudent();
+            if (!student) { showAttemptInfo(`You can submit this exercise ${max === 1 ? 'once' : max + ' times'}.`); return; }
+            const used = await countAttempts(ex, student);
+            const now = getSubmittingStudent();
+            if (ex !== activeExerciseData || exSubmitted || !now || now.id !== student.id || now.name !== student.name) return;   // changed meanwhile
+            attemptState.used = used;
+            if (used === null) showAttemptInfo(`You can submit this exercise ${max === 1 ? 'once' : max + ' times'}.`);
+            else if (used >= max) { showAttemptInfo(`You have already used ${max === 1 ? 'your only attempt' : 'all ' + max + ' attempts'} for this exercise. You cannot submit it again.`, true); btn.disabled = true; }
+            else showAttemptInfo(`Attempt ${used + 1} of ${max}.`);
+        };
+
+        function setFeedback(key, good, html) {
+            const fb = document.getElementById(`fb-${key}`);
+            if (!fb) return;
+            fb.className = 'mt-3 text-sm rounded-lg p-3 border ' + (good ? 'bg-green-50 text-green-800 border-green-200' : 'bg-red-50 text-red-800 border-red-200');
+            fb.innerHTML = html;
+        }
+
+        function reviewMcq(key, options, correctIdx) {
+            const group = document.getElementById(`group-${key}`);
+            if (!group) return;
+            const chosen = studentAnswers[key];
+            group.querySelectorAll('.mcq-option').forEach(el => {
+                const oi = Number(el.dataset.oidx);
+                el.classList.remove('mcq-selected');
+                if (oi === correctIdx) el.classList.add('mcq-correct');
+                else if (oi === chosen) el.classList.add('mcq-wrong');
+            });
+            const good = chosen === correctIdx;
+            setFeedback(key, good, good ? '&#10004; Correct' : `&#10008; Incorrect. Correct answer: <strong>${escapeHtml(options[correctIdx])}</strong>`);
+        }
+
+        // Shows the correct answers under every question (only when the teacher chose "score and correct answers")
+        function renderReview() {
+            activeExerciseData.questions.forEach((q, qi) => {
+                const t = q.type || 'mcq';
+                if (t === 'mcq') reviewMcq(String(qi), q.options, parseInt(q.correctIndex, 10));
+                else if (t === 'tf') reviewMcq(String(qi), ['True', 'False'], q.correct ? 0 : 1);
+                else if (t === 'passage') (q.questions || []).forEach((sq, si) => reviewMcq(`${qi}-${si}`, sq.options, parseInt(sq.correctIndex, 10)));
+                else if (t === 'reorder') {
+                    const good = studentAnswers[qi].every((v, i) => v === i);
+                    setFeedback(qi, good, good ? '&#10004; Correct order' :
+                        '&#10008; Incorrect. Correct order:<ol class="list-decimal ml-6 mt-1">' + q.items.map(it => `<li>${escapeHtml(it)}</li>`).join('') + '</ol>');
+                } else if (t === 'match' || t === 'link') {
+                    const marks = q.pairs.map((p, i) => studentAnswers[qi][i] === i);
+                    const allGood = marks.every(Boolean);
+                    setFeedback(qi, allGood, (allGood ? '&#10004; All pairs correct' : '&#10008; The correct pairs are:') +
+                        '<ul class="mt-1 space-y-0.5">' + q.pairs.map((p, i) => `<li>${marks[i] ? '&#10004;' : '&#10008;'} ${escapeHtml(p.left)} &rarr; <strong>${escapeHtml(p.right)}</strong></li>`).join('') + '</ul>');
+                }
+            });
+        }
+
+        function showSubmissionResult(score, total) {
+            const qc = document.getElementById('questions-container');
+            qc.classList.add('pointer-events-none'); qc.setAttribute('inert', '');     // answers are final
+            const mode = exSettings.showResult;
+            let text = mode === 'none'
+                ? 'Submitted! Your teacher will share your results.'
+                : `Submitted! You scored ${score} / ${total} (${pct(score, total)}%).`;
+            if (mode === 'answers') {
+                text += ' The correct answers are shown above.';
+                renderReview();
+                if (qc.scrollIntoView) qc.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+            const max = exSettings.maxAttempts;
+            if (max) text += ` Attempts used: ${(attemptState.used ?? 0) + 1} of ${max}.`;
+            const el = document.getElementById('submission-success');
+            el.textContent = text;
+            el.classList.remove('hidden');
+            document.getElementById('attempt-info').classList.add('hidden');
+        }
+
         window.submitExercise = async function() {
             if(!isDbConnected) { alert("Database not connected. Submissions are disabled."); return; }
             const student = getSubmittingStudent();
@@ -905,16 +1099,30 @@ window.adminDeleteLesson = async function(id) {
                 total: total
             };
             if (student.id) payload.student_id = student.id;
+            // exercises that carry settings come from a database that already has the exercise_id column
+            if (activeExerciseData.id && activeExerciseData.settings !== undefined) payload.exercise_id = activeExerciseData.id;
 
             submitBtn.disabled = true;      // one click = one saved attempt
-            const { error } = await supabaseClient.from('portal_submissions').insert([payload]);
-            if(error) {
-                submitBtn.disabled = false;
-                errEl.textContent = "Error submitting. Try again."; errEl.classList.remove('hidden');
-            } else {
-                document.getElementById('submission-success').classList.remove('hidden');
-                setTimeout(() => window.closeExercise(), 2000);
+            let { error } = await supabaseClient.from('portal_submissions').insert([payload]);
+            if (error && payload.exercise_id && /exercise_id/.test(error.message || '')) {
+                delete payload.exercise_id;     // column not added yet: save the result without it
+                ({ error } = await supabaseClient.from('portal_submissions').insert([payload]));
             }
+            if (error) {
+                const msg = String(error.message || '');
+                if (/attempt_limit/.test(msg)) {
+                    errEl.textContent = "You have already used all your attempts for this exercise.";    // button stays disabled
+                } else if (/student_blocked/.test(msg)) {
+                    errEl.textContent = "You are not allowed to submit this exercise. Please ask your teacher.";
+                } else {
+                    submitBtn.disabled = false;
+                    errEl.textContent = "Error submitting. Try again.";
+                }
+                errEl.classList.remove('hidden');
+                return;
+            }
+            exSubmitted = true;
+            showSubmissionResult(score, total);
         };
 
         window.adminAddClass = async function() {
@@ -1242,6 +1450,57 @@ window.adminAddQuestionBlock = function(type) {
             return { data: { type, text, pairs } };
         }
 
+// ---- Per-exercise settings (attempts, what students see afterwards, shuffling) ----
+
+        function normSettings(s) {
+            s = s && typeof s === 'object' ? s : {};
+            return {
+                maxAttempts: Math.max(0, parseInt(s.maxAttempts, 10) || 0),
+                showResult: ['score', 'answers', 'none'].includes(s.showResult) ? s.showResult : 'score',
+                shuffleQuestions: !!s.shuffleQuestions,
+                shuffleOptions: !!s.shuffleOptions
+            };
+        }
+
+        function isDefaultSettings(s) {
+            const n = normSettings(s);
+            return n.maxAttempts === 0 && n.showResult === 'score' && !n.shuffleQuestions && !n.shuffleOptions;
+        }
+
+        function readExerciseSettings() {
+            return normSettings({
+                maxAttempts: document.getElementById('ex-set-attempts').value,
+                showResult: document.getElementById('ex-set-result').value,
+                shuffleQuestions: document.getElementById('ex-set-shuffle-q').checked,
+                shuffleOptions: document.getElementById('ex-set-shuffle-o').checked
+            });
+        }
+
+        function writeExerciseSettings(s) {
+            const n = normSettings(s);
+            const attempts = document.getElementById('ex-set-attempts');
+            if (!Array.from(attempts.options).some(o => o.value === String(n.maxAttempts))) {
+                attempts.insertAdjacentHTML('beforeend', `<option value="${n.maxAttempts}">${n.maxAttempts}</option>`);
+            }
+            attempts.value = String(n.maxAttempts);
+            document.getElementById('ex-set-result').value = n.showResult;
+            document.getElementById('ex-set-shuffle-q').checked = n.shuffleQuestions;
+            document.getElementById('ex-set-shuffle-o').checked = n.shuffleOptions;
+        }
+
+        // Short text for the admin list, e.g. "2 attempts, shows answers, shuffled"
+        function describeSettings(s) {
+            const n = normSettings(s);
+            const parts = [];
+            if (n.maxAttempts) parts.push(n.maxAttempts === 1 ? '1 attempt' : `${n.maxAttempts} attempts`);
+            if (n.showResult === 'answers') parts.push('shows answers');
+            if (n.showResult === 'none') parts.push('hides score');
+            if (n.shuffleQuestions && n.shuffleOptions) parts.push('shuffled questions + options');
+            else if (n.shuffleQuestions) parts.push('shuffled questions');
+            else if (n.shuffleOptions) parts.push('shuffled options');
+            return parts.join(', ');
+        }
+
         let editingExerciseId = null;
 
         function setExerciseFormMode(editing) {
@@ -1255,6 +1514,7 @@ window.adminAddQuestionBlock = function(type) {
             document.getElementById('admin-ex-title').value = '';
             document.getElementById('admin-questions-list').innerHTML = '';
             window.adminAddQuestionBlock('mcq');
+            writeExerciseSettings({});
             setExerciseFormMode(false);
         }
 
@@ -1320,6 +1580,7 @@ window.adminAddQuestionBlock = function(type) {
             editingExerciseId = id;
             document.getElementById('admin-ex-title').value = data.title;
             setSelectValue(document.getElementById('admin-ex-class'), data.target_class);
+            writeExerciseSettings(data.settings);
 
             const list = document.getElementById('admin-questions-list');
             list.innerHTML = '';
@@ -1362,7 +1623,10 @@ window.adminAddQuestionBlock = function(type) {
             }
 
             const payload = { title, target_class: targetClass, questions };
+            const settings = readExerciseSettings();
             const wasEditing = !!editingExerciseId;
+            // new exercises with default settings are saved exactly as before (works even before the SQL is re-run)
+            if (wasEditing || !isDefaultSettings(settings)) payload.settings = settings;
             let error;
             if (wasEditing) {
                 const res = await supabaseClient.from('portal_exercises').update(payload).eq('id', editingExerciseId).select('id');
@@ -1374,7 +1638,7 @@ window.adminAddQuestionBlock = function(type) {
             }
 
             if (error) {
-                msgEl.textContent = wasEditing ? "Could not update the exercise. Re-run portal-setup.sql in Supabase to allow edits." : "Could not publish the exercise.";
+                msgEl.textContent = wasEditing ? "Could not update the exercise. Re-run portal-setup.sql in Supabase (it adds the permissions and settings column)." : (payload.settings ? "Could not publish the exercise. Student settings need the updated portal-setup.sql to be run in Supabase." : "Could not publish the exercise.");
                 msgEl.className = "ml-3 text-sm text-red-600 block";
                 console.error(error);
                 return;
@@ -1397,8 +1661,11 @@ window.adminAddQuestionBlock = function(type) {
         async function fetchRoster(className) {
             if (!isDbConnected || !className) return [];
             if (rosterCache[className]) return rosterCache[className];
-            const { data, error } = await supabaseClient.from('portal_students').select('id, name').eq('class_name', className).order('name', { ascending: true });
-            if (error || !data) return [];          // table not created yet -> students just type their name
+            const run = c => supabaseClient.from('portal_students').select(c).eq('class_name', className).order('name', { ascending: true });
+            let res = await run('id, name, blocked');
+            if (res.error) res = await run('id, name');        // "blocked" column not added yet
+            if (res.error || !res.data) return [];          // table not created yet -> students just type their name
+            const data = res.data.filter(s => !s.blocked);     // blocked students cannot pick their name
             rosterCache[className] = data;
             return data;
         }
@@ -1409,6 +1676,7 @@ window.adminAddQuestionBlock = function(type) {
             const input = document.getElementById('student-name-input');
             const label = document.getElementById('student-name-label');
             sel.classList.add('hidden'); input.classList.remove('hidden');
+            document.getElementById('roster-help').classList.add('hidden');
             label.textContent = 'Your Full Name';
             input.value = '';
             const cls = currentStudentClass;
@@ -1417,6 +1685,7 @@ window.adminAddQuestionBlock = function(type) {
             sel.innerHTML = '<option value="">-- Choose your name --</option>' +
                 roster.map(s => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.name)}</option>`).join('');
             input.classList.add('hidden'); sel.classList.remove('hidden');
+            document.getElementById('roster-help').classList.remove('hidden');
             label.textContent = 'Your Name';
         }
 
@@ -1446,9 +1715,11 @@ window.adminAddQuestionBlock = function(type) {
                 return;
             }
             list.innerHTML = adminRoster.map((s, i) => `
-                <li class="flex justify-between items-center px-4 py-2 bg-white gap-3">
-                    <span class="text-sm">${escapeHtml(s.name)}</span>
-                    <span class="flex gap-3 flex-shrink-0">
+                <li class="flex justify-between items-center px-4 py-2 gap-3 ${s.blocked ? 'bg-red-50' : 'bg-white'}">
+                    <span class="text-sm">${escapeHtml(s.name)}${s.blocked ? ' <span class="ml-1 text-xs text-red-700 bg-red-100 border border-red-200 rounded px-1.5 py-0.5">Blocked</span>' : ''}</span>
+                    <span class="flex gap-3 flex-shrink-0 flex-wrap justify-end">
+                        <button onclick="window.adminToggleBlock(${i})" class="${s.blocked ? 'text-green-700' : 'text-amber-600'} text-xs hover:underline">${s.blocked ? 'Unblock' : 'Block'}</button>
+                        <button onclick="window.adminMoveStudent(${i})" class="text-indigo-600 text-xs hover:underline">Move</button>
                         <button onclick="window.adminRenameStudent(${i})" class="text-indigo-600 text-xs hover:underline">Rename</button>
                         <button onclick="window.adminDeleteStudent(${i})" class="text-red-500 text-xs hover:underline">Delete</button>
                     </span>
@@ -1459,7 +1730,9 @@ window.adminAddQuestionBlock = function(type) {
             if (!isDbConnected) return;
             const cls = document.getElementById('admin-roster-class').value;
             if (!cls) { adminRoster = []; renderAdminRoster(); return; }
-            const { data, error } = await supabaseClient.from('portal_students').select('id, name').eq('class_name', cls).order('name', { ascending: true });
+            const run = c => supabaseClient.from('portal_students').select(c).eq('class_name', cls).order('name', { ascending: true });
+            let { data, error } = await run('id, name, blocked');
+            if (error) ({ data, error } = await run('id, name'));      // "blocked" column not added yet
             if (error) {
                 adminRoster = [];
                 document.getElementById('admin-roster-list').innerHTML = '<li class="px-4 py-3 bg-white text-sm text-red-600">Could not load students. Re-run portal-setup.sql in Supabase.</li>';
@@ -1500,6 +1773,59 @@ window.adminAddQuestionBlock = function(type) {
             if (error || !data || data.length === 0) { rosterMsg('Could not rename (name already used, or re-run portal-setup.sql).', false); if (error) console.error(error); return; }
             delete rosterCache[document.getElementById('admin-roster-class').value];
             resultsData.loadedAt = 0;
+            window.adminLoadRoster();
+        };
+
+
+        function studentsChanged(...classes) {
+            classes.forEach(c => delete rosterCache[c]);
+            resultsData.loadedAt = 0;
+        }
+
+        window.adminToggleBlock = async function(i) {
+            const s = adminRoster[i];
+            if (!s) return;
+            const blocked = !s.blocked;
+            const { data, error } = await supabaseClient.from('portal_students').update({ blocked }).eq('id', s.id).select('id');
+            if (error || !data || data.length === 0) {
+                rosterMsg('Could not ' + (blocked ? 'block' : 'unblock') + ' the student. Re-run portal-setup.sql in Supabase.', false);
+                if (error) console.error(error);
+                return;
+            }
+            studentsChanged(document.getElementById('admin-roster-class').value);
+            rosterMsg(blocked ? `${s.name} is blocked and can no longer submit.` : `${s.name} is unblocked.`, true);
+            window.adminLoadRoster();
+        };
+
+        let moveStudentIdx = null;
+        window.adminMoveStudent = function(i) {
+            const s = adminRoster[i];
+            if (!s) return;
+            const cur = document.getElementById('admin-roster-class').value;
+            const others = globalClasses.filter(c => c.name !== cur);
+            if (others.length === 0) { rosterMsg('Create another class first.', false); return; }
+            moveStudentIdx = i;
+            document.getElementById('move-modal-text').textContent = `Move ${s.name} from ${cur} to:`;
+            document.getElementById('move-modal-class').innerHTML = others.map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`).join('');
+            document.getElementById('move-modal-msg').textContent = '';
+            document.getElementById('move-modal').classList.remove('hidden');
+        };
+        window.closeMoveModal = function() { document.getElementById('move-modal').classList.add('hidden'); moveStudentIdx = null; };
+        window.confirmMoveStudent = async function() {
+            const s = adminRoster[moveStudentIdx];
+            const target = document.getElementById('move-modal-class').value;
+            if (!s || !target) return;
+            const from = document.getElementById('admin-roster-class').value;
+            const { data, error } = await supabaseClient.from('portal_students').update({ class_name: target }).eq('id', s.id).select('id');
+            if (error || !data || data.length === 0) {
+                document.getElementById('move-modal-msg').textContent = (error && error.code === '23505') || /duplicate|unique/i.test((error && error.message) || '')
+                    ? `${target} already has a student with this name.` : 'Could not move the student.';
+                if (error) console.error(error);
+                return;
+            }
+            window.closeMoveModal();
+            studentsChanged(from, target);
+            rosterMsg(`${s.name} moved to ${target}.`, true);
             window.adminLoadRoster();
         };
 
@@ -1609,8 +1935,8 @@ window.adminAddQuestionBlock = function(type) {
                 const byEx = new Map();
                 st.subs.forEach(sub => {
                     let e = byEx.get(sub.exercise_title);
-                    if (!e) { e = { title: sub.exercise_title, attempts: 0, best: sub, latest: sub }; byEx.set(sub.exercise_title, e); }
-                    e.attempts++;
+                    if (!e) { e = { title: sub.exercise_title, attempts: 0, best: sub, latest: sub, ids: [] }; byEx.set(sub.exercise_title, e); }
+                    e.attempts++; e.ids.push(sub.id);
                     if (pct(sub.score, sub.total) > pct(e.best.score, e.best.total)) e.best = sub;
                 });
                 st.exercises = Array.from(byEx.values());
@@ -1649,14 +1975,15 @@ window.adminAddQuestionBlock = function(type) {
                 if (rows.length === 0) { body.innerHTML = '<div class="text-center py-10 text-gray-500">No submissions found.</div>'; return; }
                 const shown = rows.slice(0, RESULTS_ROW_CAP);
                 body.innerHTML = `<table class="min-w-full divide-y divide-gray-200"><thead class="bg-gray-50"><tr>
-                        <th class="${th}">Student</th><th class="${th}">Class</th><th class="${th}">Exercise</th><th class="${th}">Score</th><th class="${th}">Date</th>
+                        <th class="${th}">Student</th><th class="${th}">Class</th><th class="${th}">Exercise</th><th class="${th}">Score</th><th class="${th}">Date</th><th class="${th}"></th>
                     </tr></thead><tbody class="bg-white divide-y divide-gray-200">` +
                     shown.map(s => `<tr class="hover:bg-gray-50">
                         <td class="px-4 py-3 text-sm font-medium text-gray-900">${escapeHtml(s.student_name)}</td>
                         <td class="px-4 py-3 text-sm text-gray-500">${escapeHtml(s.class_name)}</td>
                         <td class="px-4 py-3 text-sm text-gray-500">${escapeHtml(s.exercise_title)}</td>
                         <td class="px-4 py-3 text-sm font-bold ${pctColor(pct(s.score, s.total))}">${s.score} / ${s.total}</td>
-                        <td class="px-4 py-3 text-xs text-gray-500">${fmtDate(s.created_at)}</td></tr>`).join('') +
+                        <td class="px-4 py-3 text-xs text-gray-500">${fmtDate(s.created_at)}</td>
+                        <td class="px-4 py-3 text-right"><button onclick="window.deleteSubmission('${escapeHtml(String(s.id))}')" class="text-red-500 text-xs hover:underline">Delete</button></td></tr>`).join('') +
                     `</tbody></table>` +
                     (rows.length > shown.length ? `<p class="text-xs text-gray-500 mt-3">Showing the newest ${shown.length} of ${rows.length}. Use Export CSV to get all of them.</p>` : '');
                 return;
@@ -1674,11 +2001,12 @@ window.adminAddQuestionBlock = function(type) {
                     const open = expandedStudents.has(st.key);
                     const detail = open ? `<tr class="bg-gray-50"><td colspan="6" class="px-4 py-3">` +
                         (st.exercises.length === 0 ? '<span class="text-sm text-gray-500">No submissions yet.</span>' :
-                        `<table class="min-w-full text-sm"><thead><tr class="text-xs text-gray-500 uppercase"><th class="text-left py-1 pr-4">Exercise</th><th class="text-left py-1 pr-4">Attempts</th><th class="text-left py-1 pr-4">Best</th><th class="text-left py-1 pr-4">Latest</th><th class="text-left py-1">Last date</th></tr></thead><tbody>` +
-                        st.exercises.map(e => `<tr class="border-t border-gray-200"><td class="py-1.5 pr-4">${escapeHtml(e.title)}</td><td class="py-1.5 pr-4">${e.attempts}</td>
+                        `<table class="min-w-full text-sm"><thead><tr class="text-xs text-gray-500 uppercase"><th class="text-left py-1 pr-4">Exercise</th><th class="text-left py-1 pr-4">Attempts</th><th class="text-left py-1 pr-4">Best</th><th class="text-left py-1 pr-4">Latest</th><th class="text-left py-1 pr-4">Last date</th><th></th></tr></thead><tbody>` +
+                        st.exercises.map((e, ei) => `<tr class="border-t border-gray-200"><td class="py-1.5 pr-4">${escapeHtml(e.title)}</td><td class="py-1.5 pr-4">${e.attempts}</td>
                             <td class="py-1.5 pr-4 font-semibold ${pctColor(pct(e.best.score, e.best.total))}">${e.best.score} / ${e.best.total}</td>
-                            <td class="py-1.5 pr-4">${e.latest.score} / ${e.latest.total}</td><td class="py-1.5 text-xs text-gray-500">${fmtDate(e.latest.created_at)}</td></tr>`).join('') +
-                        `</tbody></table>`) + `</td></tr>` : '';
+                            <td class="py-1.5 pr-4">${e.latest.score} / ${e.latest.total}</td><td class="py-1.5 pr-4 text-xs text-gray-500">${fmtDate(e.latest.created_at)}</td>
+                            <td class="py-1.5 text-right"><button onclick="window.resetStudentExercise(${i}, ${ei})" class="text-red-500 text-xs hover:underline whitespace-nowrap">Reset attempts</button></td></tr>`).join('') +
+                        `</tbody></table><div class="mt-2 text-right"><button onclick="window.deleteStudentResults(${i})" class="text-red-600 text-xs hover:underline">Delete all results of ${escapeHtml(st.name)}</button></div>`) + `</td></tr>` : '';
                     return `<tr class="hover:bg-gray-50 cursor-pointer" onclick="window.toggleStudentRow(${i})">
                         <td class="px-4 py-3 text-sm font-medium text-gray-900"><span class="text-gray-400 mr-1">${open ? '&#9662;' : '&#9656;'}</span>${escapeHtml(st.name)}${st.inRoster ? '' : ' <span class="ml-1 text-xs text-gray-500 bg-gray-100 border border-gray-200 rounded px-1.5 py-0.5">not on class list</span>'}</td>
                         <td class="px-4 py-3 text-sm text-gray-500">${escapeHtml(st.cls)}</td>
@@ -1687,6 +2015,83 @@ window.adminAddQuestionBlock = function(type) {
                         <td class="px-4 py-3 text-sm text-gray-700">${st.subs.length}</td>
                         <td class="px-4 py-3 text-xs text-gray-500">${st.last ? fmtDate(st.last) : 'No activity'}</td></tr>${detail}`;
                 }).join('') + `</tbody></table>`;
+        };
+
+
+        // ---- Deleting saved results ----
+        async function deleteSubmissionsByIds(ids) {
+            let deleted = 0;
+            for (let k = 0; k < ids.length; k += 100) {
+                const part = ids.slice(k, k + 100);
+                const { data, error } = await supabaseClient.from('portal_submissions').delete().in('id', part).select('id');
+                if (error) { console.error(error); throw new Error('Could not delete. Re-run portal-setup.sql in Supabase.'); }
+                deleted += (data || []).length;
+            }
+            if (ids.length && deleted === 0) throw new Error('Nothing was deleted (the delete permission is missing). Re-run portal-setup.sql in Supabase.');
+            return deleted;
+        }
+
+        async function afterResultsDeleted(msg) {
+            await window.loadResults(true);
+            document.getElementById('results-status').textContent = msg + ' · ' + document.getElementById('results-status').textContent;
+        }
+
+        window.deleteSubmission = async function(id) {
+            const sub = resultsData.subs.find(x => String(x.id) === String(id));
+            if (!sub || !confirm(`Delete this result?\n${sub.student_name} - ${sub.exercise_title}: ${sub.score}/${sub.total}`)) return;
+            try { await deleteSubmissionsByIds([sub.id]); } catch (e) { alert(e.message); return; }
+            await afterResultsDeleted('1 result deleted');
+        };
+
+        window.resetStudentExercise = async function(i, ei) {
+            const st = resultsSummaries[i], e = st && st.exercises[ei];
+            if (!e || !confirm(`Delete ${e.attempts} attempt${e.attempts === 1 ? '' : 's'} of "${e.title}" by ${st.name}?\nThe student can then do it again.`)) return;
+            try { await deleteSubmissionsByIds(e.ids); } catch (err) { alert(err.message); return; }
+            await afterResultsDeleted(`${e.attempts} deleted`);
+        };
+
+        window.deleteStudentResults = async function(i) {
+            const st = resultsSummaries[i];
+            if (!st || st.subs.length === 0) return;
+            if (!confirm(`Delete ALL ${st.subs.length} saved result${st.subs.length === 1 ? '' : 's'} of ${st.name}? This cannot be undone.`)) return;
+            try { await deleteSubmissionsByIds(st.subs.map(x => x.id)); } catch (err) { alert(err.message); return; }
+            await afterResultsDeleted(`${st.subs.length} deleted`);
+        };
+
+        window.openBulkDelete = function() {
+            const cur = document.getElementById('results-class-filter').value;
+            document.getElementById('bulk-class').innerHTML = '<option value="">All classes</option>' +
+                globalClasses.map(c => `<option value="${escapeHtml(c.name)}"${c.name === cur ? ' selected' : ''}>${escapeHtml(c.name)}</option>`).join('');
+            const titles = Array.from(new Set(resultsData.subs.map(x => x.exercise_title))).sort();
+            document.getElementById('bulk-exercise').innerHTML = '<option value="">All exercises</option>' +
+                titles.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
+            document.getElementById('bulk-before').value = '';
+            document.getElementById('bulk-msg').textContent = '';
+            document.getElementById('bulk-modal').classList.remove('hidden');
+        };
+        window.closeBulkDelete = function() { document.getElementById('bulk-modal').classList.add('hidden'); };
+
+        window.confirmBulkDelete = async function() {
+            const cls = document.getElementById('bulk-class').value;
+            const title = document.getElementById('bulk-exercise').value;
+            const before = document.getElementById('bulk-before').value;
+            const msg = document.getElementById('bulk-msg');
+            msg.className = 'text-sm mb-2 text-red-600';
+            const filt = q => {
+                if (cls) q = q.eq('class_name', cls);
+                if (title) q = q.eq('exercise_title', title);
+                if (before) q = q.lt('created_at', new Date(before + 'T00:00:00').toISOString());
+                return q.not('id', 'is', null);
+            };
+            const { count, error } = await filt(supabaseClient.from('portal_submissions').select('id', { count: 'exact', head: true }));
+            if (error) { msg.textContent = 'Could not count the results.'; console.error(error); return; }
+            if (!count) { msg.textContent = 'No saved results match these choices.'; return; }
+            const what = [cls ? 'class ' + cls : 'all classes', title ? '"' + title + '"' : 'all exercises', before ? 'before ' + before : null].filter(Boolean).join(', ');
+            if (!confirm(`Delete ${count} saved result${count === 1 ? '' : 's'} (${what})?\nThis cannot be undone.`)) return;
+            const res = await filt(supabaseClient.from('portal_submissions').delete()).select('id');
+            if (res.error || !res.data || res.data.length === 0) { msg.textContent = 'Nothing was deleted. Re-run portal-setup.sql in Supabase.'; if (res.error) console.error(res.error); return; }
+            window.closeBulkDelete();
+            await afterResultsDeleted(`${res.data.length} deleted`);
         };
 
         window.exportResultsCsv = function() {
