@@ -36,6 +36,19 @@
         .toolbar-btn:hover { background: #e5e7eb; }
         .add-q-btn { font-size: 14px; background: #eef2ff; color: #4338ca; font-weight: 500; padding: 6px 12px; border-radius: 6px; border: 1px solid #c7d2fe; cursor: pointer; transition: background 0.2s; }
         .add-q-btn:hover { background: #e0e7ff; }
+
+        /* Live board */
+        .board-frame { width: 100%; aspect-ratio: 16 / 9; border: 1px solid #d1d5db; border-radius: 8px; overflow: hidden; background: #fff; }
+        .board-canvas { width: 100%; height: 100%; display: block; }
+        #admin-board-canvas { touch-action: none; }
+        #admin-board-wrap:fullscreen, #student-board-wrap:fullscreen { background: #fff; padding: 12px; overflow: auto; }
+        #admin-board-wrap:fullscreen .board-frame, #student-board-wrap:fullscreen .board-frame { width: min(100%, calc((100vh - 190px) * 16 / 9)); margin: 0 auto; }
+        .btool { padding: 5px 9px; border: 1px solid #d1d5db; border-radius: 6px; background: #fff; font-size: 13px; cursor: pointer; line-height: 1.2; }
+        .btool:hover { background: #eef2ff; }
+        .btool-on { background: #4f46e5 !important; color: #fff; border-color: #4f46e5; }
+        .bcolor { width: 22px; height: 22px; border-radius: 9999px; border: 2px solid #fff; box-shadow: 0 0 0 1px #9ca3af; cursor: pointer; }
+        .bcolor-on { box-shadow: 0 0 0 2px #4f46e5; transform: scale(1.15); }
+        .prompt-box { white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
     </style>
 </head>
 <body class="text-gray-800 h-screen flex flex-col overflow-hidden relative">
@@ -73,13 +86,29 @@
             </div>
 
             <div id="student-content-area" class="hidden">
-                <div class="flex space-x-8 mb-6 border-b border-gray-200">
+                <div class="flex space-x-6 sm:space-x-8 mb-6 border-b border-gray-200 overflow-x-auto whitespace-nowrap">
                     <button id="tab-student-lessons" onclick="window.switchStudentTab('lessons')" class="tab-active pb-3 text-sm font-medium">Lessons</button>
                     <button id="tab-student-exercises" onclick="window.switchStudentTab('exercises')" class="tab-inactive pb-3 text-sm font-medium">Exercises</button>
+                    <button id="tab-student-homework" onclick="window.switchStudentTab('homework')" class="tab-inactive pb-3 text-sm font-medium">Homework</button>
+                    <button id="tab-student-board" onclick="window.switchStudentTab('board')" class="tab-inactive pb-3 text-sm font-medium">Live Board</button>
                 </div>
 
                 <div id="student-lessons-container" class="grid gap-6 md:grid-cols-2 block fade-in"></div>
                 <div id="student-exercises-container" class="hidden fade-in space-y-4"></div>
+                <div id="student-homework-container" class="hidden fade-in space-y-6"></div>
+                <div id="student-board-container" class="hidden fade-in">
+                    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-3 sm:p-4" id="student-board-wrap">
+                        <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+                            <div id="student-board-status" class="text-sm font-medium text-gray-600">Connecting...</div>
+                            <div class="flex items-center gap-2">
+                                <span id="student-board-page" class="text-xs text-gray-500"></span>
+                                <button onclick="window.studentBoardPng()" class="px-3 py-1.5 text-xs border border-gray-300 rounded-lg bg-white hover:bg-gray-50">Save image</button>
+                                <button onclick="window.boardFullscreen('student-board-wrap')" class="px-3 py-1.5 text-xs border border-gray-300 rounded-lg bg-white hover:bg-gray-50">Full screen</button>
+                            </div>
+                        </div>
+                        <div class="board-frame"><canvas id="student-board-canvas" class="board-canvas"></canvas></div>
+                    </div>
+                </div>
 
                 <!-- Active Exercise Modal/View -->
                 <div id="active-exercise-view" class="hidden bg-white p-6 rounded-xl shadow-md border border-gray-200 mt-4">
@@ -122,6 +151,8 @@
                 <button id="tab-admin-classes" onclick="window.switchAdminTab('classes')" class="tab-active pb-3 px-2 text-sm font-medium">Classes</button>
                 <button id="tab-admin-lessons" onclick="window.switchAdminTab('lessons')" class="tab-inactive pb-3 px-2 text-sm font-medium">Publish Lessons</button>
                 <button id="tab-admin-exercises" onclick="window.switchAdminTab('exercises')" class="tab-inactive pb-3 px-2 text-sm font-medium">Create Exercises</button>
+                <button id="tab-admin-homework" onclick="window.switchAdminTab('homework')" class="tab-inactive pb-3 px-2 text-sm font-medium whitespace-nowrap">Homework</button>
+                <button id="tab-admin-board" onclick="window.switchAdminTab('board')" class="tab-inactive pb-3 px-2 text-sm font-medium whitespace-nowrap">Live Board</button>
                 <button id="tab-admin-results" onclick="window.switchAdminTab('results')" class="tab-inactive pb-3 px-2 text-sm font-medium">Results</button>
             </div>
 
@@ -184,6 +215,14 @@
                     <button id="lesson-publish-btn" onclick="window.adminPublishLesson()" class="bg-indigo-600 text-white py-2 px-6 rounded-lg">Publish Lesson</button>
                     <button id="lesson-cancel-btn" type="button" onclick="window.adminCancelLessonEdit()" class="hidden ml-2 py-2 px-4 rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-50">Cancel edit</button>
                     <span id="lesson-publish-msg" class="ml-3 text-sm font-medium hidden"></span>
+                    <div id="lesson-exercises-panel" class="mt-5 p-4 bg-indigo-50 border border-indigo-200 rounded-lg">
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <h4 class="font-semibold text-indigo-900">Exercises in this lesson</h4>
+                            <button id="lesson-add-ex-btn" type="button" onclick="window.adminAddExerciseFor('lesson', editingLessonId)" class="hidden text-sm bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-1.5 px-3 rounded-lg">+ Add exercise</button>
+                        </div>
+                        <p id="lesson-ex-hint" class="text-xs text-indigo-800 mt-1">Publish the lesson first, then you can add exercises to it (also from the list below with "+ Exercise"). Students see them at the bottom of the lesson.</p>
+                        <ul id="lesson-ex-list" class="mt-2 space-y-1"></ul>
+                    </div>
                 </div>
 
                 <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
@@ -228,6 +267,18 @@
                             <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer"><input type="checkbox" id="ex-set-shuffle-q" class="w-4 h-4"> Shuffle the order of the questions</label>
                             <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer"><input type="checkbox" id="ex-set-shuffle-o" class="w-4 h-4"> Shuffle the answer options</label>
                         </div>
+                        <div class="mt-3 pt-3 border-t border-gray-200">
+                            <label class="block text-xs font-medium text-gray-500 mb-1">Where does this exercise appear for students?</label>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <select id="ex-attach-type" onchange="window.refreshAttachOptions()" class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white">
+                                    <option value="">In the Exercises tab (stand-alone)</option>
+                                    <option value="lesson">Inside a lesson</option>
+                                    <option value="homework">Inside a homework</option>
+                                </select>
+                                <select id="ex-attach-id" class="hidden w-full px-3 py-2 border border-gray-300 rounded-lg bg-white"></select>
+                            </div>
+                            <p id="ex-attach-hint" class="hidden text-xs text-gray-500 mt-1"></p>
+                        </div>
                         <p class="text-xs text-gray-500 mt-2">Attempts are counted per student and enforced by the database. They are most reliable when the class has a student list (Classes tab), because students then pick their name instead of typing it.</p>
                     </div>
                     <div class="border-t border-gray-200 pt-4 mb-4">
@@ -260,6 +311,124 @@
                 <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
                     <h3 class="text-lg font-bold mb-4">Published Exercises</h3>
                     <ul id="admin-exercises-list" class="divide-y divide-gray-200 bg-gray-50 border rounded-lg overflow-hidden"></ul>
+                </div>
+            </div>
+
+            <!-- Admin: Homework Tab -->
+            <div id="admin-homework-container" class="hidden fade-in space-y-6">
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                    <h3 id="hw-form-title" class="text-lg font-bold mb-4">New Homework</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                        <input type="text" id="admin-hw-title" class="px-4 py-2 border border-gray-300 rounded-lg" placeholder="Homework title">
+                        <select id="admin-hw-class" class="dynamic-class-select px-4 py-2 border border-gray-300 rounded-lg">
+                            <option value="" disabled selected>Select Class</option>
+                        </select>
+                        <div>
+                            <input type="date" id="admin-hw-due" class="w-full px-4 py-2 border border-gray-300 rounded-lg" title="Due date (optional)">
+                        </div>
+                    </div>
+                    <label class="block text-xs font-medium text-gray-500 mb-1">Instructions for students</label>
+                    <div class="mb-4">
+                        <div class="bg-gray-50 border border-gray-300 border-b-0 rounded-t-lg p-2 flex gap-2 items-center">
+                            <button type="button" onclick="window.execCmd('bold')" class="toolbar-btn font-bold">B</button>
+                            <button type="button" onclick="window.execCmd('italic')" class="toolbar-btn italic">I</button>
+                            <button type="button" onclick="window.execCmd('underline')" class="toolbar-btn underline">U</button>
+                            <button type="button" onclick="window.execCmd('insertUnorderedList')" class="toolbar-btn">&bull; List</button>
+                            <div class="h-4 w-px bg-gray-300 mx-1"></div>
+                            <label class="text-xs font-medium text-gray-600 flex items-center gap-1 cursor-pointer">
+                                Color: <input type="color" onchange="window.execCmd('foreColor', this.value)" class="w-6 h-6 border-0 p-0 cursor-pointer">
+                            </label>
+                        </div>
+                        <div id="admin-hw-content" contenteditable="true" class="editor-content p-4 border border-gray-300 rounded-b-lg bg-white" data-placeholder="Describe the homework: what to read, write, prepare..."></div>
+                    </div>
+
+                    <div class="p-4 bg-violet-50 border border-violet-200 rounded-lg mb-4">
+                        <div class="flex flex-wrap items-center justify-between gap-2 mb-1">
+                            <h4 class="font-semibold text-violet-900">ChatGPT practice prompt</h4>
+                            <button type="button" onclick="window.adminHwTemplate()" class="text-sm bg-violet-600 hover:bg-violet-700 text-white font-medium py-1.5 px-3 rounded-lg">Generate a prompt template</button>
+                        </div>
+                        <p class="text-xs text-violet-800 mb-2">Students get a Copy button and an "Open ChatGPT" button. Write the exact prompt they should paste, or generate a template from the title and instructions and edit it.</p>
+                        <textarea id="admin-hw-prompt" rows="9" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white" placeholder="Example: Act as my friendly English tutor. Give me 10 questions on the present perfect, one at a time..."></textarea>
+                    </div>
+
+                    <button id="hw-publish-btn" onclick="window.adminPublishHomework()" class="bg-indigo-600 text-white py-2 px-6 rounded-lg">Publish Homework</button>
+                    <button id="hw-cancel-btn" type="button" onclick="window.adminCancelHomeworkEdit()" class="hidden ml-2 py-2 px-4 rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-50">Cancel edit</button>
+                    <span id="hw-publish-msg" class="ml-3 text-sm font-medium hidden"></span>
+
+                    <div id="hw-exercises-panel" class="mt-5 p-4 bg-indigo-50 border border-indigo-200 rounded-lg">
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <h4 class="font-semibold text-indigo-900">Exercises in this homework</h4>
+                            <button id="hw-add-ex-btn" type="button" onclick="window.adminAddExerciseFor('homework', editingHomeworkId)" class="hidden text-sm bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-1.5 px-3 rounded-lg">+ Add exercise</button>
+                        </div>
+                        <p id="hw-ex-hint" class="text-xs text-indigo-800 mt-1">Publish the homework first, then add graded exercises to it (or use "+ Exercise" in the list below).</p>
+                        <ul id="hw-ex-list" class="mt-2 space-y-1"></ul>
+                    </div>
+                </div>
+
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                    <h3 class="text-lg font-bold mb-4">Published Homework</h3>
+                    <ul id="admin-homework-list" class="divide-y divide-gray-200 bg-gray-50 border rounded-lg overflow-hidden"></ul>
+                </div>
+            </div>
+
+            <!-- Admin: Live Board Tab -->
+            <div id="admin-board-container" class="hidden fade-in">
+                <div id="admin-board-wrap" class="bg-white rounded-xl shadow-sm border border-gray-200 p-3 sm:p-4">
+                    <div class="flex flex-wrap items-center gap-3 mb-3">
+                        <select id="admin-board-class" onchange="window.adminBoardClassChanged()" class="dynamic-class-select px-3 py-2 border border-gray-300 rounded-lg bg-white text-sm">
+                            <option value="" disabled selected>Select Class</option>
+                        </select>
+                        <button id="board-live-btn" onclick="window.adminBoardToggleLive()" class="px-4 py-2 text-sm font-semibold rounded-lg bg-red-600 hover:bg-red-700 text-white">Go live</button>
+                        <span id="board-live-status" class="text-sm text-gray-600">Not live. Draw freely to prepare, students see it once you go live.</span>
+                        <span class="flex-1"></span>
+                        <span id="board-save-status" class="text-xs text-gray-400"></span>
+                    </div>
+
+                    <div class="flex flex-wrap items-center gap-x-4 gap-y-2 p-2 mb-3 bg-gray-50 border border-gray-200 rounded-lg">
+                        <div id="board-tools" class="flex flex-wrap gap-1"></div>
+                        <div class="h-6 w-px bg-gray-300"></div>
+                        <div id="board-colors" class="flex flex-wrap items-center gap-1"></div>
+                        <input type="color" id="board-color-custom" class="w-7 h-7 p-0 border border-gray-300 rounded cursor-pointer" title="Custom color">
+                        <div class="h-6 w-px bg-gray-300"></div>
+                        <label class="flex items-center gap-2 text-xs text-gray-600">Size
+                            <input type="range" id="board-size" min="1" max="24" value="4" class="w-24">
+                            <span id="board-size-val" class="w-5 text-right">4</span>
+                        </label>
+                        <label class="flex items-center gap-1 text-xs text-gray-600 cursor-pointer"><input type="checkbox" id="board-fill" class="w-4 h-4"> Fill shapes</label>
+                        <label class="flex items-center gap-1 text-xs text-gray-600">Background
+                            <select id="board-bg" class="px-2 py-1 border border-gray-300 rounded bg-white text-xs">
+                                <option value="white">White</option>
+                                <option value="grid">Grid</option>
+                                <option value="dots">Dots</option>
+                                <option value="lined">Lined paper</option>
+                                <option value="dark">Blackboard</option>
+                            </select>
+                        </label>
+                    </div>
+
+                    <div class="flex flex-wrap items-center gap-2 mb-3">
+                        <button onclick="window.boardUndo()" class="px-3 py-1.5 text-xs border border-gray-300 rounded-lg bg-white hover:bg-gray-50" title="Ctrl+Z">&#8630; Undo</button>
+                        <button onclick="window.boardRedo()" class="px-3 py-1.5 text-xs border border-gray-300 rounded-lg bg-white hover:bg-gray-50" title="Ctrl+Y">&#8631; Redo</button>
+                        <button onclick="window.boardDeleteSelected()" class="px-3 py-1.5 text-xs border border-gray-300 rounded-lg bg-white hover:bg-gray-50" title="Delete">Delete selected</button>
+                        <button onclick="window.boardClearPage()" class="px-3 py-1.5 text-xs border border-red-300 text-red-600 rounded-lg bg-white hover:bg-red-50">Clear page</button>
+                        <div class="h-5 w-px bg-gray-300 mx-1"></div>
+                        <button onclick="window.boardGoPage(-1)" class="px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg bg-white hover:bg-gray-50">&lsaquo;</button>
+                        <span id="board-page-label" class="text-xs text-gray-700 font-medium w-20 text-center">Page 1 / 1</span>
+                        <button onclick="window.boardGoPage(1)" class="px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg bg-white hover:bg-gray-50">&rsaquo;</button>
+                        <button onclick="window.boardAddPage()" class="px-3 py-1.5 text-xs border border-gray-300 rounded-lg bg-white hover:bg-gray-50">+ Page</button>
+                        <button onclick="window.boardDeletePage()" class="px-3 py-1.5 text-xs border border-gray-300 rounded-lg bg-white hover:bg-gray-50">Delete page</button>
+                        <div class="h-5 w-px bg-gray-300 mx-1"></div>
+                        <button onclick="window.adminBoardPng()" class="px-3 py-1.5 text-xs border border-gray-300 rounded-lg bg-white hover:bg-gray-50">Save image</button>
+                        <button onclick="window.boardNewBoard()" class="px-3 py-1.5 text-xs border border-red-300 text-red-600 rounded-lg bg-white hover:bg-red-50">New board</button>
+                        <button onclick="window.boardFullscreen('admin-board-wrap')" class="px-3 py-1.5 text-xs border border-gray-300 rounded-lg bg-white hover:bg-gray-50">Full screen</button>
+                    </div>
+
+                    <div class="board-frame relative" id="admin-board-frame">
+                        <canvas id="admin-board-canvas" class="board-canvas"></canvas>
+                        <textarea id="board-text-input" class="hidden absolute z-10 border-2 border-indigo-500 rounded bg-white/90 text-black p-1 outline-none resize" rows="1" placeholder="Type, then click outside"></textarea>
+                    </div>
+                    <input type="file" id="board-image-file" accept="image/*" class="hidden">
+                    <p class="text-xs text-gray-500 mt-2">Tip: Ctrl+Z / Ctrl+Y to undo/redo, Delete removes the selected item. Use the red laser tool to point at things while students watch.</p>
                 </div>
             </div>
 
@@ -347,7 +516,10 @@
         <div class="bg-white rounded-xl shadow-2xl max-w-3xl w-full p-6 sm:p-8 max-h-[90vh] flex flex-col relative">
             <button onclick="document.getElementById('lesson-modal').classList.add('hidden')" class="absolute top-4 right-4 text-gray-400 hover:text-gray-700 text-2xl leading-none">&times;</button>
             <h2 id="lesson-read-title" class="text-2xl font-bold text-gray-900 mb-4"></h2>
-            <div id="lesson-read-content" class="prose max-w-none text-gray-800 overflow-y-auto"></div>
+            <div class="overflow-y-auto">
+                <div id="lesson-read-content" class="prose max-w-none text-gray-800"></div>
+                <div id="lesson-read-exercises" class="hidden mt-6 pt-5 border-t border-gray-200"></div>
+            </div>
         </div>
     </div>
 
@@ -420,30 +592,28 @@
         };
 
         window.switchStudentTab = function(tabId) {
-            document.getElementById('tab-student-lessons').className = tabId === 'lessons' ? "tab-active pb-3 text-sm font-medium" : "tab-inactive pb-3 text-sm font-medium";
-            document.getElementById('tab-student-exercises').className = tabId === 'exercises' ? "tab-active pb-3 text-sm font-medium" : "tab-inactive pb-3 text-sm font-medium";
-            
-            if (tabId === 'lessons') {
-                document.getElementById('student-lessons-container').classList.remove('hidden');
-                document.getElementById('student-exercises-container').classList.add('hidden');
-                document.getElementById('active-exercise-view').classList.add('hidden');
-            } else {
-                document.getElementById('student-lessons-container').classList.add('hidden');
-                document.getElementById('student-exercises-container').classList.remove('hidden');
-            }
+            ['lessons', 'exercises', 'homework', 'board'].forEach(t => {
+                document.getElementById(`tab-student-${t}`).className = t === tabId ? "tab-active pb-3 text-sm font-medium" : "tab-inactive pb-3 text-sm font-medium";
+                document.getElementById(`student-${t}-container`).classList.toggle('hidden', t !== tabId);
+            });
+            document.getElementById('active-exercise-view').classList.add('hidden');
+            if (tabId === 'board') window.startStudentBoard(); else window.stopStudentBoard();
         };
 
         window.switchAdminTab = function(tabId) {
-            const tabs = ['classes', 'lessons', 'exercises', 'results'];
+            const tabs = ['classes', 'lessons', 'exercises', 'homework', 'board', 'results'];
             tabs.forEach(t => {
                 document.getElementById(`tab-admin-${t}`).className = (t === tabId) ? "tab-active pb-3 px-2 text-sm font-medium" : "tab-inactive pb-3 px-2 text-sm font-medium";
                 if(t === tabId) document.getElementById(`admin-${t}-container`).classList.remove('hidden');
                 else document.getElementById(`admin-${t}-container`).classList.add('hidden');
             });
             if (tabId === 'results') window.loadResults(false);
+            if (tabId === 'board') window.adminBoardShown();
+            if (tabId === 'homework' || tabId === 'lessons') { renderLessonExPanel(); renderHwExPanel(); }
             if(tabId === 'exercises' && document.getElementById('admin-questions-list').children.length === 0){
-                window.adminAddQuestionBlock(); 
+                window.adminAddQuestionBlock();
             }
+            if (tabId === 'exercises') window.refreshAttachOptions();
         };
 
         window.execCmd = function(command, value = null) {
@@ -491,6 +661,7 @@
             if (rows) {
                 globalExercises = rows;
                 renderStudentExercises();
+                if (typeof renderStudentHomework === 'function') renderStudentHomework();
             }
         }
 
@@ -536,27 +707,31 @@
             const list = document.getElementById('admin-lessons-list');
             if (adminLessons.length === 0) {
                 list.innerHTML = '<li class="px-4 py-3 bg-white text-sm text-gray-500">No lessons published yet.</li>';
+                renderLessonExPanel();
                 return;
             }
             list.innerHTML = adminLessons.map(l => `
                 <li class="flex justify-between items-center px-4 py-3 gap-4 ${l.is_hidden ? 'bg-gray-100' : 'bg-white'}">
                     <div class="${l.is_hidden ? 'opacity-60' : ''}">
                         <span class="font-medium">${escapeHtml(l.title)}</span>${hiddenBadge(l)}
-                        <span class="block text-xs text-gray-500">${escapeHtml(l.target_class)}</span>
+                        <span class="block text-xs text-gray-500">${escapeHtml(l.target_class)}${attachedExercises('lesson', l.id).length ? ' &bull; ' + attachedExercises('lesson', l.id).length + ' exercise(s)' : ''}</span>
                     </div>
                     <div class="flex gap-4 flex-shrink-0">
+                        <button onclick="window.adminAddExerciseFor('lesson', '${l.id}')" class="text-emerald-600 text-sm hover:underline">+ Exercise</button>
                         ${visibilityButton('lesson', l)}
                         <button onclick="window.adminEditLesson('${l.id}')" class="text-indigo-600 text-sm hover:underline">Edit</button>
                         <button onclick="window.adminDeleteLesson('${l.id}')" class="text-red-500 text-sm hover:underline">Delete</button>
                     </div>
                 </li>
             `).join('');
+            renderLessonExPanel();
         }
 
         function renderAdminExercises() {
             const list = document.getElementById('admin-exercises-list');
             if (adminExercises.length === 0) {
                 list.innerHTML = '<li class="px-4 py-3 bg-white text-sm text-gray-500">No exercises published yet.</li>';
+                renderLessonExPanel(); renderHwExPanel(); renderAdminLessons(); renderAdminHomework();
                 return;
             }
             list.innerHTML = adminExercises.map(ex => `
@@ -572,13 +747,16 @@
                     </div>
                 </li>
             `).join('');
+            renderLessonExPanel(); renderHwExPanel();
+            if (!window.__exRerender) { window.__exRerender = true; renderAdminLessons(); renderAdminHomework(); window.__exRerender = false; }
         }
 
         window.adminToggleHidden = async function(kind, id) {
             if (!isDbConnected) return;
             const isLesson = kind === 'lesson';
-            const table = isLesson ? 'portal_lessons' : 'portal_exercises';
-            const item = (isLesson ? adminLessons : adminExercises).find(x => x.id == id);
+            const isHw = kind === 'homework';
+            const table = isLesson ? 'portal_lessons' : isHw ? 'portal_homework' : 'portal_exercises';
+            const item = (isLesson ? adminLessons : isHw ? adminHomework : adminExercises).find(x => x.id == id);
             if (!item) return;
             const newValue = !item.is_hidden;
             const { data, error } = await supabaseClient.from(table).update({ is_hidden: newValue }).eq('id', id).select('id');
@@ -588,7 +766,7 @@
                 return;
             }
             item.is_hidden = newValue;
-            if (isLesson) renderAdminLessons(); else renderAdminExercises();
+            if (isLesson) renderAdminLessons(); else if (isHw) renderAdminHomework(); else renderAdminExercises();
         };
 
 window.adminDeleteLesson = async function(id) {
@@ -596,6 +774,7 @@ window.adminDeleteLesson = async function(id) {
             const { error } = await supabaseClient.from('portal_lessons').delete().eq('id', id);
             if (error) { alert("Could not delete the lesson."); console.error(error); return; }
             if (editingLessonId === id) window.adminCancelLessonEdit();
+            await detachExercisesFrom('lesson', id);
             fetchAdminLessons();
         };
 
@@ -611,6 +790,7 @@ window.adminDeleteLesson = async function(id) {
             fetchClasses();
             fetchAdminLessons();
             fetchAdminExercises();
+            fetchAdminHomework();
         }
 
 
@@ -634,8 +814,11 @@ window.adminDeleteLesson = async function(id) {
                 document.getElementById('student-content-area').classList.remove('hidden');
                 fetchLessons(currentStudentClass);
                 fetchExercises(currentStudentClass);
+                fetchHomework(currentStudentClass);
                 fetchRoster(currentStudentClass);
+                if (document.getElementById('tab-student-board').className.includes('tab-active')) window.startStudentBoard();
             } else {
+                window.stopStudentBoard();
                 document.getElementById('student-no-class-msg').classList.remove('hidden');
                 document.getElementById('student-content-area').classList.add('hidden');
             }
@@ -650,11 +833,11 @@ window.adminDeleteLesson = async function(id) {
             }
             globalLessons.forEach(l => {
                 const tempDiv = document.createElement('div');
-                tempDiv.innerHTML = l.content;
-                const snippet = tempDiv.textContent.substring(0, 80) + '...';
+                tempDiv.innerHTML = sanitizeHtml(l.content);
+                const snippet = escapeHtml(tempDiv.textContent.substring(0, 80)) + '...';
                 container.innerHTML += `
                     <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-                        <h3 class="text-xl font-bold mb-2">${l.title}</h3>
+                        <h3 class="text-xl font-bold mb-2">${escapeHtml(l.title)}</h3>
                         <p class="text-gray-600 text-sm mb-4">${snippet}</p>
                         <button onclick="window.readLesson('${l.id}')" class="text-indigo-600 font-medium">Read Full Lesson &rarr;</button>
                     </div>`;
@@ -665,22 +848,36 @@ window.adminDeleteLesson = async function(id) {
             const lesson = globalLessons.find(l => l.id == id);
             if(!lesson) return;
             document.getElementById('lesson-read-title').textContent = lesson.title;
-            document.getElementById('lesson-read-content').innerHTML = lesson.content;
+            document.getElementById('lesson-read-content').innerHTML = sanitizeHtml(lesson.content);
+            const exBox = document.getElementById('lesson-read-exercises');
+            const exs = attachedExercises('lesson', lesson.id, true);
+            if (exs.length) {
+                exBox.innerHTML = '<h3 class="text-lg font-bold text-gray-900 mb-3">Practice exercises</h3>' + exs.map(ex => `
+                    <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 flex justify-between items-center gap-3 mb-2 cursor-pointer hover:border-indigo-400" onclick="window.openExerciseFrom('${ex.id}', 'lessons')">
+                        <div><p class="font-semibold">${escapeHtml(ex.title)}</p><p class="text-xs text-gray-500">${(ex.questions || []).length} questions</p></div>
+                        <span class="text-indigo-600 font-medium text-sm">Start</span>
+                    </div>`).join('');
+                exBox.classList.remove('hidden');
+            } else {
+                exBox.innerHTML = '';
+                exBox.classList.add('hidden');
+            }
             document.getElementById('lesson-modal').classList.remove('hidden');
         };
 
         function renderStudentExercises() {
             const container = document.getElementById('student-exercises-container');
             container.innerHTML = '';
-            if (globalExercises.length === 0) {
+            const standalone = globalExercises.filter(ex => !normSettings(ex.settings).attachType);
+            if (standalone.length === 0) {
                 container.innerHTML = `<div class="text-center text-gray-500 py-8">No exercises assigned yet.</div>`;
                 return;
             }
-            globalExercises.forEach(ex => {
+            standalone.forEach(ex => {
                 container.innerHTML += `
-                    <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-200 flex justify-between items-center cursor-pointer hover:border-indigo-400" onclick="window.openExercise('${ex.id}')">
+                    <div class="bg-white p-5 rounded-xl shadow-sm border border-gray-200 flex justify-between items-center cursor-pointer hover:border-indigo-400" onclick="window.openExerciseFrom('${ex.id}', 'exercises')">
                         <div>
-                            <h3 class="text-lg font-bold">${ex.title}</h3>
+                            <h3 class="text-lg font-bold">${escapeHtml(ex.title)}</h3>
                             <p class="text-sm text-gray-500">${ex.questions.length} Questions${normSettings(ex.settings).maxAttempts ? ' &bull; ' + (normSettings(ex.settings).maxAttempts === 1 ? 'one attempt' : normSettings(ex.settings).maxAttempts + ' attempts') + ' allowed' : ''}</p>
                         </div>
                         <button class="text-indigo-600 font-medium">Start</button>
@@ -770,6 +967,12 @@ window.adminDeleteLesson = async function(id) {
         };
 
         window.closeExercise = function() {
+            if (exerciseReturnTab && exerciseReturnTab !== 'exercises') {
+                const t = exerciseReturnTab;
+                exerciseReturnTab = 'exercises';
+                window.switchStudentTab(t);
+                return;
+            }
             document.getElementById('student-exercises-container').classList.remove('hidden');
             document.getElementById('active-exercise-view').classList.add('hidden');
         };
@@ -1162,6 +1365,7 @@ function mcqOptionsHtml(key, q, shuffle) {
             document.getElementById('lesson-form-title').textContent = editing ? 'Edit Lesson' : 'Draft New Lesson';
             document.getElementById('lesson-publish-btn').textContent = editing ? 'Update Lesson' : 'Publish Lesson';
             document.getElementById('lesson-cancel-btn').classList.toggle('hidden', !editing);
+            renderLessonExPanel();
         }
 
         function resetLessonForm() {
@@ -1203,13 +1407,16 @@ function mcqOptionsHtml(key, q, shuffle) {
             const payload = { title, target_class: targetClass, content };
             const wasEditing = !!editingLessonId;
             let error;
+            let newLessonId = null;
             if (wasEditing) {
                 const res = await supabaseClient.from('portal_lessons').update(payload).eq('id', editingLessonId).select('id');
                 error = res.error;
                 // Without an UPDATE policy Supabase reports success but changes nothing
                 if (!error && (!res.data || res.data.length === 0)) error = { message: 'No row was updated (is the UPDATE policy missing?)' };
             } else {
-                ({ error } = await supabaseClient.from('portal_lessons').insert([payload]));
+                const res = await supabaseClient.from('portal_lessons').insert([payload]).select('id');
+                error = res.error;
+                if (!error && res.data && res.data[0]) newLessonId = res.data[0].id;
             }
 
             if (error) {
@@ -1223,8 +1430,9 @@ function mcqOptionsHtml(key, q, shuffle) {
             msgEl.className = "ml-3 text-sm text-green-600 block";
             resetLessonForm();
             if (wasEditing) document.getElementById('admin-lesson-class').value = '';
-            fetchAdminLessons();
+            await fetchAdminLessons();
             setTimeout(() => msgEl.classList.add('hidden'), 3000);
+            if (newLessonId && confirm("Lesson published. Add an exercise to this lesson now?")) window.adminAddExerciseFor('lesson', newLessonId);
         };
 
 window.adminAddQuestionBlock = function(type) {
@@ -1458,21 +1666,26 @@ window.adminAddQuestionBlock = function(type) {
                 maxAttempts: Math.max(0, parseInt(s.maxAttempts, 10) || 0),
                 showResult: ['score', 'answers', 'none'].includes(s.showResult) ? s.showResult : 'score',
                 shuffleQuestions: !!s.shuffleQuestions,
-                shuffleOptions: !!s.shuffleOptions
+                shuffleOptions: !!s.shuffleOptions,
+                attachType: (s.attachType === 'lesson' || s.attachType === 'homework') && s.attachId ? s.attachType : '',
+                attachId: (s.attachType === 'lesson' || s.attachType === 'homework') && s.attachId ? String(s.attachId) : ''
             };
         }
 
         function isDefaultSettings(s) {
             const n = normSettings(s);
-            return n.maxAttempts === 0 && n.showResult === 'score' && !n.shuffleQuestions && !n.shuffleOptions;
+            return n.maxAttempts === 0 && n.showResult === 'score' && !n.shuffleQuestions && !n.shuffleOptions && !n.attachType;
         }
 
         function readExerciseSettings() {
+            const at = document.getElementById('ex-attach-type').value;
             return normSettings({
                 maxAttempts: document.getElementById('ex-set-attempts').value,
                 showResult: document.getElementById('ex-set-result').value,
                 shuffleQuestions: document.getElementById('ex-set-shuffle-q').checked,
-                shuffleOptions: document.getElementById('ex-set-shuffle-o').checked
+                shuffleOptions: document.getElementById('ex-set-shuffle-o').checked,
+                attachType: at,
+                attachId: at ? document.getElementById('ex-attach-id').value : ''
             });
         }
 
@@ -1486,6 +1699,8 @@ window.adminAddQuestionBlock = function(type) {
             document.getElementById('ex-set-result').value = n.showResult;
             document.getElementById('ex-set-shuffle-q').checked = n.shuffleQuestions;
             document.getElementById('ex-set-shuffle-o').checked = n.shuffleOptions;
+            document.getElementById('ex-attach-type').value = n.attachType;
+            window.refreshAttachOptions(n.attachId);
         }
 
         // Short text for the admin list, e.g. "2 attempts, shows answers, shuffled"
@@ -1498,6 +1713,11 @@ window.adminAddQuestionBlock = function(type) {
             if (n.shuffleQuestions && n.shuffleOptions) parts.push('shuffled questions + options');
             else if (n.shuffleQuestions) parts.push('shuffled questions');
             else if (n.shuffleOptions) parts.push('shuffled options');
+            if (n.attachType) {
+                const list = n.attachType === 'lesson' ? adminLessons : adminHomework;
+                const parent = list.find(x => String(x.id) === n.attachId);
+                parts.unshift((n.attachType === 'lesson' ? 'in lesson: ' : 'in homework: ') + (parent ? parent.title : '(removed)'));
+            }
             return parts.join(', ');
         }
 
@@ -2374,6 +2594,1292 @@ window.adminAddQuestionBlock = function(type) {
         if(isDbConnected) {
             fetchClasses();
         }
+
+    
+        // =====================================================================
+        // ADD-ON: exercises inside lessons, homework + ChatGPT prompt, live board
+        // =====================================================================
+        const $ = id => document.getElementById(id);
+
+        let adminHomework = [];
+        let globalHomework = [];
+        let editingHomeworkId = null;
+        let exerciseReturnTab = 'exercises';
+        let homeworkTableMissing = false;
+
+        // ---------- small helpers ----------
+        function sanitizeHtml(html) {
+            const doc = new DOMParser().parseFromString('<div>' + String(html ?? '') + '</div>', 'text/html');
+            const root = doc.body.firstElementChild;
+            root.querySelectorAll('script,style,iframe,object,embed,link,meta,form,base').forEach(n => n.remove());
+            root.querySelectorAll('*').forEach(el => {
+                Array.from(el.attributes).forEach(a => {
+                    const n = a.name.toLowerCase(), v = a.value.trim().toLowerCase();
+                    const badUrl = /^javascript:/.test(v) || (/^data:/.test(v) && !/^data:image\//.test(v));
+                    if (n.startsWith('on') || ((n === 'href' || n === 'src' || n === 'xlink:href') && badUrl)) el.removeAttribute(a.name);
+                });
+            });
+            return root.innerHTML;
+        }
+
+        async function copyText(text) {
+            try { await navigator.clipboard.writeText(text); return true; } catch (e) { /* fall back below */ }
+            const ta = document.createElement('textarea');
+            ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+            document.body.appendChild(ta); ta.select();
+            let ok = false;
+            try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+            ta.remove();
+            return ok;
+        }
+
+        function attachedExercises(type, id, forStudent) {
+            const list = forStudent ? globalExercises : adminExercises;
+            return list.filter(ex => {
+                const s = normSettings(ex.settings);
+                return s.attachType === type && s.attachId === String(id);
+            }).sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+        }
+
+        async function detachExercisesFrom(type, id) {
+            if (!isDbConnected) return;
+            const exs = attachedExercises(type, id, false);
+            for (const ex of exs) {
+                const s = normSettings(ex.settings);
+                s.attachType = ''; s.attachId = '';
+                await supabaseClient.from('portal_exercises').update({ settings: s }).eq('id', ex.id);
+            }
+            if (exs.length) fetchAdminExercises();
+        }
+
+        function fmtDue(due) {
+            if (!due) return '';
+            const d = new Date(due + 'T00:00:00');
+            return isNaN(d) ? '' : d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+        }
+
+        function dueBadge(due) {
+            if (!due) return '';
+            const today = new Date(); today.setHours(0, 0, 0, 0);
+            const d = new Date(due + 'T00:00:00');
+            if (isNaN(d)) return '';
+            const days = Math.round((d - today) / 86400000);
+            let cls = 'bg-gray-100 text-gray-700 border-gray-200', txt = 'Due ' + fmtDue(due);
+            if (days < 0) { cls = 'bg-red-50 text-red-700 border-red-200'; txt = 'Overdue (' + fmtDue(due) + ')'; }
+            else if (days === 0) { cls = 'bg-amber-50 text-amber-700 border-amber-200'; txt = 'Due today'; }
+            else if (days <= 2) { cls = 'bg-amber-50 text-amber-700 border-amber-200'; txt = 'Due ' + fmtDue(due); }
+            return `<span class="text-xs font-semibold border rounded px-2 py-0.5 ${cls}">${escapeHtml(txt)}</span>`;
+        }
+
+        // ---------- attaching exercises to lessons / homework (admin) ----------
+        window.refreshAttachOptions = function(selectedId) {
+            const type = $('ex-attach-type').value;
+            const idSel = $('ex-attach-id');
+            const hint = $('ex-attach-hint');
+            if (typeof selectedId !== 'string') selectedId = idSel.dataset.type === type ? idSel.value : '';
+            if (!type) {
+                idSel.classList.add('hidden'); hint.classList.add('hidden');
+                idSel.innerHTML = ''; idSel.dataset.type = '';
+                return;
+            }
+            const cls = $('admin-ex-class').value;
+            const src = type === 'lesson' ? adminLessons : adminHomework;
+            const items = src.filter(x => !cls || x.target_class === cls);
+            if (selectedId && !items.some(x => String(x.id) === selectedId)) {
+                const f = src.find(x => String(x.id) === selectedId);
+                if (f) items.push(f);
+            }
+            const noun = type === 'lesson' ? 'a lesson' : 'a homework';
+            idSel.innerHTML = `<option value="">-- Choose ${noun} --</option>` +
+                items.map(x => `<option value="${escapeHtml(String(x.id))}">${escapeHtml(x.title)}</option>`).join('');
+            idSel.value = selectedId || '';
+            idSel.dataset.type = type;
+            idSel.classList.remove('hidden');
+            hint.textContent = cls
+                ? (items.length ? 'Students will see this exercise inside the chosen ' + type + ' (not in the general Exercises tab).' : `No ${type === 'lesson' ? 'lessons' : 'homework'} found for ${cls}. Publish one first.`)
+                : 'Choose the class above first to list its ' + (type === 'lesson' ? 'lessons.' : 'homework.');
+            hint.classList.remove('hidden');
+        };
+
+        $('admin-ex-class').addEventListener('change', () => window.refreshAttachOptions(''));
+
+        window.adminAddExerciseFor = function(kind, id) {
+            if (!id) return;
+            const src = kind === 'lesson' ? adminLessons : adminHomework;
+            const item = src.find(x => String(x.id) === String(id));
+            if (!item) return;
+            window.switchAdminTab('exercises');
+            window.adminCancelExerciseEdit();
+            setSelectValue($('admin-ex-class'), item.target_class);
+            $('ex-attach-type').value = kind;
+            window.refreshAttachOptions(String(id));
+            $('admin-ex-title').focus();
+            $('ex-form-title').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        };
+
+        window.adminEditExerciseFromPanel = function(id) {
+            window.switchAdminTab('exercises');
+            window.adminEditExercise(id);
+        };
+
+        function panelListHtml(exs) {
+            if (!exs.length) return '<li class="text-xs text-indigo-800">No exercises yet.</li>';
+            return exs.map(ex => `<li class="flex justify-between items-center bg-white border border-indigo-100 rounded px-3 py-1.5 text-sm">
+                <span>${escapeHtml(ex.title)} <span class="text-xs text-gray-500">(${(ex.questions || []).length} questions)</span></span>
+                <button type="button" onclick="window.adminEditExerciseFromPanel('${ex.id}')" class="text-indigo-600 text-xs hover:underline">Edit</button></li>`).join('');
+        }
+
+        function renderLessonExPanel() {
+            const btn = $('lesson-add-ex-btn'); if (!btn) return;
+            if (!editingLessonId) {
+                btn.classList.add('hidden'); $('lesson-ex-hint').classList.remove('hidden'); $('lesson-ex-list').innerHTML = '';
+                return;
+            }
+            btn.classList.remove('hidden'); $('lesson-ex-hint').classList.add('hidden');
+            $('lesson-ex-list').innerHTML = panelListHtml(attachedExercises('lesson', editingLessonId, false));
+        }
+
+        function renderHwExPanel() {
+            const btn = $('hw-add-ex-btn'); if (!btn) return;
+            if (!editingHomeworkId) {
+                btn.classList.add('hidden'); $('hw-ex-hint').classList.remove('hidden'); $('hw-ex-list').innerHTML = '';
+                return;
+            }
+            btn.classList.remove('hidden'); $('hw-ex-hint').classList.add('hidden');
+            $('hw-ex-list').innerHTML = panelListHtml(attachedExercises('homework', editingHomeworkId, false));
+        }
+
+        // ---------- homework (admin) ----------
+        async function fetchAdminHomework() {
+            if (!isDbConnected) return;
+            const { data, error } = await fetchAdminRows('portal_homework', 'id, title, target_class, due_date, created_at');
+            if (error) { homeworkTableMissing = true; adminHomework = []; }
+            else { homeworkTableMissing = false; adminHomework = data || []; }
+            renderAdminHomework();
+        }
+
+        function renderAdminHomework() {
+            const list = $('admin-homework-list');
+            if (!list) return;
+            if (homeworkTableMissing) {
+                list.innerHTML = '<li class="px-4 py-3 bg-red-50 text-sm text-red-700">The homework table was not found. Run <b>portal-board-setup.sql</b> once in the Supabase SQL editor, then reload.</li>';
+                renderHwExPanel();
+                return;
+            }
+            if (adminHomework.length === 0) {
+                list.innerHTML = '<li class="px-4 py-3 bg-white text-sm text-gray-500">No homework published yet.</li>';
+                renderHwExPanel();
+                return;
+            }
+            list.innerHTML = adminHomework.map(h => {
+                const n = attachedExercises('homework', h.id, false).length;
+                return `
+                <li class="flex justify-between items-center px-4 py-3 gap-4 ${h.is_hidden ? 'bg-gray-100' : 'bg-white'}">
+                    <div class="${h.is_hidden ? 'opacity-60' : ''}">
+                        <span class="font-medium">${escapeHtml(h.title)}</span>${hiddenBadge(h)}
+                        <span class="block text-xs text-gray-500">${escapeHtml(h.target_class)}${h.due_date ? ' &bull; due ' + escapeHtml(fmtDue(h.due_date)) : ''}${n ? ' &bull; ' + n + ' exercise(s)' : ''}</span>
+                    </div>
+                    <div class="flex gap-4 flex-shrink-0">
+                        <button onclick="window.adminAddExerciseFor('homework', '${h.id}')" class="text-emerald-600 text-sm hover:underline">+ Exercise</button>
+                        ${visibilityButton('homework', h)}
+                        <button onclick="window.adminEditHomework('${h.id}')" class="text-indigo-600 text-sm hover:underline">Edit</button>
+                        <button onclick="window.adminDeleteHomework('${h.id}')" class="text-red-500 text-sm hover:underline">Delete</button>
+                    </div>
+                </li>`;
+            }).join('');
+            renderHwExPanel();
+        }
+
+        function setHomeworkFormMode(editing) {
+            $('hw-form-title').textContent = editing ? 'Edit Homework' : 'New Homework';
+            $('hw-publish-btn').textContent = editing ? 'Update Homework' : 'Publish Homework';
+            $('hw-cancel-btn').classList.toggle('hidden', !editing);
+            renderHwExPanel();
+        }
+
+        function resetHomeworkForm() {
+            editingHomeworkId = null;
+            $('admin-hw-title').value = '';
+            $('admin-hw-due').value = '';
+            $('admin-hw-content').innerHTML = '';
+            $('admin-hw-prompt').value = '';
+            setHomeworkFormMode(false);
+        }
+
+        window.adminCancelHomeworkEdit = function() {
+            resetHomeworkForm();
+            $('admin-hw-class').value = '';
+        };
+
+        window.adminEditHomework = async function(id) {
+            if (!isDbConnected) return;
+            const { data, error } = await supabaseClient.from('portal_homework').select('*').eq('id', id).single();
+            if (error || !data) { alert("Could not load this homework."); console.error(error); return; }
+            editingHomeworkId = id;
+            $('admin-hw-title').value = data.title;
+            setSelectValue($('admin-hw-class'), data.target_class);
+            $('admin-hw-due').value = data.due_date || '';
+            $('admin-hw-content').innerHTML = sanitizeHtml(data.content || '');
+            $('admin-hw-prompt').value = data.chatgpt_prompt || '';
+            setHomeworkFormMode(true);
+            $('hw-publish-msg').classList.add('hidden');
+            $('hw-form-title').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        };
+
+        window.adminPublishHomework = async function() {
+            if (!isDbConnected) return alert("Database not connected.");
+            const title = $('admin-hw-title').value.trim();
+            const targetClass = $('admin-hw-class').value;
+            const contentEl = $('admin-hw-content');
+            const content = contentEl.innerHTML.trim();
+            const hasContent = contentEl.textContent.trim() !== '' || contentEl.querySelector('img');
+            const prompt = $('admin-hw-prompt').value.trim();
+            const due = $('admin-hw-due').value || null;
+            const msgEl = $('hw-publish-msg');
+            const fail = t => { msgEl.textContent = t; msgEl.className = "ml-3 text-sm text-red-600 block"; };
+
+            if (!title || !targetClass) return fail("Title and class are required.");
+            if (!hasContent && !prompt) return fail("Add instructions or a ChatGPT prompt.");
+
+            const payload = { title, target_class: targetClass, content: hasContent ? content : '', due_date: due, chatgpt_prompt: prompt };
+            const wasEditing = !!editingHomeworkId;
+            let error, newId = null;
+            if (wasEditing) {
+                const res = await supabaseClient.from('portal_homework').update(payload).eq('id', editingHomeworkId).select('id');
+                error = res.error;
+                if (!error && (!res.data || res.data.length === 0)) error = { message: 'No row was updated (is the UPDATE policy missing?)' };
+            } else {
+                const res = await supabaseClient.from('portal_homework').insert([payload]).select('id');
+                error = res.error;
+                if (!error && res.data && res.data[0]) newId = res.data[0].id;
+            }
+            if (error) {
+                fail(homeworkTableMissing || /portal_homework|relation|schema cache/i.test(error.message || '')
+                    ? "The homework table is missing. Run portal-board-setup.sql in Supabase first."
+                    : (wasEditing ? "Could not update the homework." : "Could not publish the homework."));
+                console.error(error);
+                return;
+            }
+            msgEl.textContent = wasEditing ? "Homework Updated!" : "Homework Published!";
+            msgEl.className = "ml-3 text-sm text-green-600 block";
+            resetHomeworkForm();
+            if (wasEditing) $('admin-hw-class').value = '';
+            await fetchAdminHomework();
+            setTimeout(() => msgEl.classList.add('hidden'), 3000);
+            if (newId && confirm("Homework published. Add a graded exercise to it now?")) window.adminAddExerciseFor('homework', newId);
+        };
+
+        window.adminDeleteHomework = async function(id) {
+            if (!isDbConnected || !confirm("Delete this homework?")) return;
+            const { error } = await supabaseClient.from('portal_homework').delete().eq('id', id);
+            if (error) { alert("Could not delete the homework."); console.error(error); return; }
+            if (editingHomeworkId === id) window.adminCancelHomeworkEdit();
+            await detachExercisesFrom('homework', id);
+            fetchAdminHomework();
+        };
+
+        window.adminHwTemplate = function() {
+            const ta = $('admin-hw-prompt');
+            if (ta.value.trim() && !confirm("Replace the current prompt with a new template?")) return;
+            const title = $('admin-hw-title').value.trim() || 'the topic from today\'s lesson';
+            const cls = $('admin-hw-class').value;
+            const details = $('admin-hw-content').textContent.trim().replace(/\s+/g, ' ').slice(0, 600);
+            ta.value =
+`Act as a friendly, patient English teacher and practice partner${cls ? ' for a student in the class "' + cls + '"' : ''}.
+
+Topic: ${title}
+${details ? 'Homework details: ' + details + '\n' : ''}
+How to run the practice:
+1. First ask me my level (beginner, intermediate or advanced) and adapt everything to it.
+2. Explain the key rule or idea of the topic in simple words, with 2 short examples.
+3. Then give me ONE question at a time (mix fill-in-the-blank, multiple choice and short writing). Wait for my answer before moving on.
+4. After each answer, tell me if it is correct. If it is wrong, explain why, show the correct answer, then give me a similar question.
+5. After 10 questions, give me my score, list my most common mistakes, and tell me what to review.
+
+Keep your messages short, encouraging and in simple English. Start now.`;
+        };
+
+        // ---------- homework (student) ----------
+        async function fetchHomework(className) {
+            if (!isDbConnected) return;
+            const rows = await fetchStudentRows('portal_homework', className);
+            globalHomework = rows || [];
+            renderStudentHomework();
+        }
+
+        function renderStudentHomework() {
+            const c = $('student-homework-container');
+            if (!c) return;
+            if (!globalHomework.length) {
+                c.innerHTML = '<div class="text-center text-gray-500 py-8">No homework assigned yet.</div>';
+                return;
+            }
+            c.innerHTML = globalHomework.map(h => {
+                const exs = attachedExercises('homework', h.id, true);
+                const prompt = (h.chatgpt_prompt || '').trim();
+                return `
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                    <div class="flex flex-wrap items-start justify-between gap-2 mb-3">
+                        <h3 class="text-xl font-bold text-gray-900">${escapeHtml(h.title)}</h3>
+                        ${dueBadge(h.due_date)}
+                    </div>
+                    ${h.content ? `<div class="prose max-w-none text-gray-800 mb-4">${sanitizeHtml(h.content)}</div>` : ''}
+                    ${exs.length ? `
+                        <div class="mb-4">
+                            <h4 class="font-semibold text-gray-900 mb-2">Homework exercises</h4>
+                            ${exs.map(ex => `
+                                <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 flex justify-between items-center gap-3 mb-2 cursor-pointer hover:border-indigo-400" onclick="window.openExerciseFrom('${ex.id}', 'homework')">
+                                    <div><p class="font-semibold">${escapeHtml(ex.title)}</p><p class="text-xs text-gray-500">${(ex.questions || []).length} questions</p></div>
+                                    <span class="text-indigo-600 font-medium text-sm">Start</span>
+                                </div>`).join('')}
+                        </div>` : ''}
+                    ${prompt ? `
+                        <div class="p-4 bg-violet-50 border border-violet-200 rounded-lg">
+                            <h4 class="font-semibold text-violet-900">Practice with ChatGPT</h4>
+                            <p class="text-sm text-violet-800 mb-3">Copy this prompt, paste it into ChatGPT, and practise out loud or in writing.</p>
+                            <div class="prompt-box bg-white border border-violet-200 rounded-lg p-3 max-h-64 overflow-y-auto">${escapeHtml(prompt)}</div>
+                            <div class="flex flex-wrap gap-2 mt-3">
+                                <button onclick="window.copyHwPrompt('${h.id}', this)" class="bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold py-2 px-4 rounded-lg">Copy prompt</button>
+                                <button onclick="window.openChatGpt('${h.id}', this)" class="bg-white hover:bg-violet-50 text-violet-700 border border-violet-300 text-sm font-semibold py-2 px-4 rounded-lg">Copy &amp; open ChatGPT &#8599;</button>
+                            </div>
+                        </div>` : ''}
+                </div>`;
+            }).join('');
+        }
+
+        function flashButton(btn, text) {
+            const old = btn.innerHTML;
+            btn.textContent = text;
+            setTimeout(() => { btn.innerHTML = old; }, 2000);
+        }
+
+        window.copyHwPrompt = async function(id, btn) {
+            const h = globalHomework.find(x => String(x.id) === String(id));
+            if (!h) return;
+            const ok = await copyText(h.chatgpt_prompt || '');
+            flashButton(btn, ok ? 'Copied!' : 'Press Ctrl+C to copy');
+        };
+
+        window.openChatGpt = async function(id, btn) {
+            const h = globalHomework.find(x => String(x.id) === String(id));
+            if (!h) return;
+            const p = h.chatgpt_prompt || '';
+            const url = p.length <= 1500 ? 'https://chatgpt.com/?q=' + encodeURIComponent(p) : 'https://chatgpt.com/';
+            window.open(url, '_blank', 'noopener');
+            const ok = await copyText(p);
+            flashButton(btn, ok ? 'Copied! Paste it in ChatGPT' : 'Open ChatGPT');
+        };
+
+        // ---------- opening an exercise from a lesson / homework ----------
+        window.openExerciseFrom = function(id, tab) {
+            exerciseReturnTab = tab || 'exercises';
+            $('lesson-modal').classList.add('hidden');
+            window.switchStudentTab('exercises');
+            window.openExercise(id);
+        };
+
+        // Validate the "attach" selection before the original publish function runs
+        (function() {
+            const origPublish = window.adminPublishExercise;
+            window.adminPublishExercise = function() {
+                if ($('ex-attach-type').value && !$('ex-attach-id').value) {
+                    const msgEl = $('ex-publish-msg');
+                    msgEl.textContent = "Choose which " + $('ex-attach-type').value + " this exercise belongs to (or pick \"stand-alone\").";
+                    msgEl.className = "ml-3 text-sm text-red-600 block";
+                    return;
+                }
+                return origPublish.apply(this, arguments);
+            };
+        })();
+
+        // =====================================================================
+        // LIVE BOARD
+        // =====================================================================
+        const BOARD_W = 1600, BOARD_H = 900;
+        const BOARD_COLORS = ['#111827', '#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899', '#ffffff'];
+        const BOARD_FONT = fs => fs + 'px "Segoe UI", Tahoma, "Noto Sans Arabic", Arial, sans-serif';
+        const bid = () => Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
+        const boardSlug = cls => 'board-' + btoa(unescape(encodeURIComponent(cls))).replace(/[^a-zA-Z0-9]/g, '').slice(0, 60);
+        const sleep = ms => new Promise(r => setTimeout(r, ms));
+        const newPage = (bg) => ({ bg: bg || 'white', els: [], h: [], r: [] });
+        const isRtl = s => /[֐-ࣿ]/.test(s);
+
+        // ----- drawing -----
+        function strokePath(ctx, p) {
+            if (p.length === 2) {
+                ctx.beginPath(); ctx.arc(p[0], p[1], ctx.lineWidth / 2, 0, Math.PI * 2); ctx.fill(); return;
+            }
+            ctx.beginPath(); ctx.moveTo(p[0], p[1]);
+            if (p.length < 6) {
+                for (let i = 2; i < p.length; i += 2) ctx.lineTo(p[i], p[i + 1]);
+            } else {
+                for (let i = 2; i < p.length - 2; i += 2) {
+                    ctx.quadraticCurveTo(p[i], p[i + 1], (p[i] + p[i + 2]) / 2, (p[i + 1] + p[i + 3]) / 2);
+                }
+                ctx.lineTo(p[p.length - 2], p[p.length - 1]);
+            }
+            ctx.stroke();
+        }
+
+        function drawBackground(ctx, bg) {
+            ctx.save();
+            ctx.fillStyle = bg === 'dark' ? '#24352d' : '#ffffff';
+            ctx.fillRect(0, 0, BOARD_W, BOARD_H);
+            if (bg === 'grid') {
+                ctx.strokeStyle = '#e5e7eb'; ctx.lineWidth = 1; ctx.beginPath();
+                for (let x = 40; x < BOARD_W; x += 40) { ctx.moveTo(x, 0); ctx.lineTo(x, BOARD_H); }
+                for (let y = 40; y < BOARD_H; y += 40) { ctx.moveTo(0, y); ctx.lineTo(BOARD_W, y); }
+                ctx.stroke();
+            } else if (bg === 'dots') {
+                ctx.fillStyle = '#cbd5e1';
+                for (let x = 40; x < BOARD_W; x += 40) for (let y = 40; y < BOARD_H; y += 40) { ctx.beginPath(); ctx.arc(x, y, 2, 0, Math.PI * 2); ctx.fill(); }
+            } else if (bg === 'lined') {
+                ctx.strokeStyle = '#bfdbfe'; ctx.lineWidth = 1.5; ctx.beginPath();
+                for (let y = 100; y < BOARD_H; y += 50) { ctx.moveTo(0, y); ctx.lineTo(BOARD_W, y); }
+                ctx.stroke();
+                ctx.strokeStyle = '#fecaca'; ctx.beginPath(); ctx.moveTo(120, 0); ctx.lineTo(120, BOARD_H); ctx.stroke();
+            }
+            ctx.restore();
+        }
+
+        function drawElement(ctx, el, view) {
+            ctx.save();
+            ctx.translate(el.ox || 0, el.oy || 0);
+            ctx.strokeStyle = el.c; ctx.fillStyle = el.c;
+            ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = el.s || 4;
+            const a = el.a;
+            switch (el.t) {
+                case 'pen': strokePath(ctx, el.p); break;
+                case 'hl': ctx.globalAlpha = 0.35; ctx.lineWidth = (el.s || 4) * 3.5; strokePath(ctx, el.p); break;
+                case 'line': ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(a[2], a[3]); ctx.stroke(); break;
+                case 'arrow': {
+                    ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(a[2], a[3]); ctx.stroke();
+                    const ang = Math.atan2(a[3] - a[1], a[2] - a[0]), hl = 14 + (el.s || 4) * 2.2;
+                    ctx.beginPath(); ctx.moveTo(a[2], a[3]);
+                    ctx.lineTo(a[2] - hl * Math.cos(ang - 0.45), a[3] - hl * Math.sin(ang - 0.45));
+                    ctx.moveTo(a[2], a[3]);
+                    ctx.lineTo(a[2] - hl * Math.cos(ang + 0.45), a[3] - hl * Math.sin(ang + 0.45));
+                    ctx.stroke(); break;
+                }
+                case 'rect': {
+                    const x = Math.min(a[0], a[2]), y = Math.min(a[1], a[3]), w = Math.abs(a[2] - a[0]), h = Math.abs(a[3] - a[1]);
+                    if (el.f) { ctx.save(); ctx.globalAlpha = 0.3; ctx.fillRect(x, y, w, h); ctx.restore(); }
+                    ctx.strokeRect(x, y, w, h); break;
+                }
+                case 'ellipse': {
+                    const cx = (a[0] + a[2]) / 2, cy = (a[1] + a[3]) / 2, rx = Math.abs(a[2] - a[0]) / 2, ry = Math.abs(a[3] - a[1]) / 2;
+                    ctx.beginPath(); ctx.ellipse(cx, cy, Math.max(rx, 0.5), Math.max(ry, 0.5), 0, 0, Math.PI * 2);
+                    if (el.f) { ctx.save(); ctx.globalAlpha = 0.3; ctx.fill(); ctx.restore(); }
+                    ctx.stroke(); break;
+                }
+                case 'text': {
+                    const lines = String(el.txt || '').split('\n'), lh = el.fs * 1.25, rtl = isRtl(el.txt);
+                    ctx.font = BOARD_FONT(el.fs); ctx.textBaseline = 'top';
+                    ctx.direction = rtl ? 'rtl' : 'ltr'; ctx.textAlign = rtl ? 'right' : 'left';
+                    lines.forEach((ln, i) => ctx.fillText(ln, rtl ? el.x + el.w : el.x, el.y + i * lh));
+                    break;
+                }
+                case 'img': {
+                    let im = view.imgCache[el.id];
+                    if (!im || im.__src !== el.src) {
+                        im = new Image(); im.__src = el.src;
+                        im.onload = () => view.requestDraw();
+                        im.src = el.src; view.imgCache[el.id] = im;
+                    }
+                    if (im.complete && im.naturalWidth) ctx.drawImage(im, el.x, el.y, el.w, el.h);
+                    break;
+                }
+            }
+            ctx.restore();
+        }
+
+        function elBounds(el) {
+            let x0, y0, x1, y1, pad = 4;
+            if (el.t === 'pen' || el.t === 'hl') {
+                x0 = Infinity; y0 = Infinity; x1 = -Infinity; y1 = -Infinity;
+                for (let i = 0; i < el.p.length; i += 2) {
+                    x0 = Math.min(x0, el.p[i]); x1 = Math.max(x1, el.p[i]); y0 = Math.min(y0, el.p[i + 1]); y1 = Math.max(y1, el.p[i + 1]);
+                }
+                pad = (el.t === 'hl' ? el.s * 1.75 : el.s / 2) + 4;
+            } else if (el.t === 'text' || el.t === 'img') {
+                x0 = el.x; y0 = el.y; x1 = el.x + el.w; y1 = el.y + el.h;
+            } else {
+                x0 = Math.min(el.a[0], el.a[2]); x1 = Math.max(el.a[0], el.a[2]); y0 = Math.min(el.a[1], el.a[3]); y1 = Math.max(el.a[1], el.a[3]);
+                pad = (el.s || 4) / 2 + 4;
+            }
+            return { x: x0 - pad + (el.ox || 0), y: y0 - pad + (el.oy || 0), w: x1 - x0 + pad * 2, h: y1 - y0 + pad * 2 };
+        }
+
+        function segDist(px, py, x1, y1, x2, y2) {
+            const dx = x2 - x1, dy = y2 - y1, l2 = dx * dx + dy * dy;
+            let t = l2 ? ((px - x1) * dx + (py - y1) * dy) / l2 : 0;
+            t = Math.max(0, Math.min(1, t));
+            return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+        }
+
+        function hitEl(el, x, y, tol) {
+            x -= el.ox || 0; y -= el.oy || 0;
+            const half = (el.t === 'hl' ? el.s * 1.75 : (el.s || 4) / 2);
+            if (el.t === 'pen' || el.t === 'hl') {
+                if (el.p.length === 2) return Math.hypot(x - el.p[0], y - el.p[1]) <= tol + half;
+                for (let i = 0; i < el.p.length - 2; i += 2) if (segDist(x, y, el.p[i], el.p[i + 1], el.p[i + 2], el.p[i + 3]) <= tol + half) return true;
+                return false;
+            }
+            if (el.t === 'line' || el.t === 'arrow') return segDist(x, y, el.a[0], el.a[1], el.a[2], el.a[3]) <= tol + half;
+            if (el.t === 'rect') {
+                const x0 = Math.min(el.a[0], el.a[2]), x1 = Math.max(el.a[0], el.a[2]), y0 = Math.min(el.a[1], el.a[3]), y1 = Math.max(el.a[1], el.a[3]), m = tol + half;
+                const inOuter = x >= x0 - m && x <= x1 + m && y >= y0 - m && y <= y1 + m;
+                if (!inOuter) return false;
+                if (el.f) return true;
+                return !(x > x0 + m && x < x1 - m && y > y0 + m && y < y1 - m);
+            }
+            if (el.t === 'ellipse') {
+                const cx = (el.a[0] + el.a[2]) / 2, cy = (el.a[1] + el.a[3]) / 2, rx = Math.max(Math.abs(el.a[2] - el.a[0]) / 2, 1), ry = Math.max(Math.abs(el.a[3] - el.a[1]) / 2, 1);
+                const d = Math.hypot((x - cx) / rx, (y - cy) / ry), m = (tol + half) / Math.min(rx, ry);
+                return el.f ? d <= 1 + m : Math.abs(d - 1) <= m;
+            }
+            if (el.t === 'text' || el.t === 'img') return x >= el.x - tol && x <= el.x + el.w + tol && y >= el.y - tol && y <= el.y + el.h + tol;
+            return false;
+        }
+
+        function renderPage(ctx, view, pg) {
+            drawBackground(ctx, pg.bg);
+            pg.els.forEach(el => drawElement(ctx, el, view));
+        }
+
+        function createBoardView(canvas) {
+            const view = {
+                canvas, ctx: canvas.getContext('2d'), pages: [newPage()], page: 0,
+                laser: null, selected: null, imgCache: {}, scale: 1, _raf: 0,
+                curPage() { return view.pages[view.page] || view.pages[0]; },
+                resize() {
+                    const r = canvas.getBoundingClientRect();
+                    if (!r.width) return;
+                    const dpr = window.devicePixelRatio || 1;
+                    const w = Math.round(r.width * dpr), h = Math.round(r.width * BOARD_H / BOARD_W * dpr);
+                    if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+                    view.scale = canvas.width / BOARD_W;
+                    view.requestDraw();
+                },
+                requestDraw() { if (!view._raf) view._raf = requestAnimationFrame(() => view.draw()); },
+                draw() {
+                    view._raf = 0;
+                    const ctx = view.ctx, pg = view.curPage();
+                    ctx.setTransform(1, 0, 0, 1, 0, 0);
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.setTransform(view.scale, 0, 0, view.scale, 0, 0);
+                    renderPage(ctx, view, pg);
+                    if (view.selected) {
+                        const el = pg.els.find(e => e.id === view.selected);
+                        if (el) {
+                            const b = elBounds(el);
+                            ctx.save(); ctx.strokeStyle = '#4f46e5'; ctx.lineWidth = 2; ctx.setLineDash([8, 6]);
+                            ctx.strokeRect(b.x, b.y, b.w, b.h); ctx.restore();
+                        }
+                    }
+                    const L = view.laser;
+                    if (L && Date.now() - L.t < 1500) {
+                        ctx.save();
+                        const g = ctx.createRadialGradient(L.x, L.y, 2, L.x, L.y, 26);
+                        g.addColorStop(0, 'rgba(239,68,68,0.95)'); g.addColorStop(1, 'rgba(239,68,68,0)');
+                        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(L.x, L.y, 26, 0, Math.PI * 2); ctx.fill();
+                        ctx.fillStyle = '#dc2626'; ctx.beginPath(); ctx.arc(L.x, L.y, 7, 0, Math.PI * 2); ctx.fill();
+                        ctx.restore();
+                    }
+                }
+            };
+            if (window.ResizeObserver) new ResizeObserver(() => view.resize()).observe(canvas);
+            window.addEventListener('resize', () => view.resize());
+            return view;
+        }
+
+        function exportBoardPng(view, name) {
+            const c = document.createElement('canvas');
+            c.width = BOARD_W; c.height = BOARD_H;
+            renderPage(c.getContext('2d'), view, view.curPage());
+            c.toBlob(b => {
+                if (!b) return;
+                const url = URL.createObjectURL(b);
+                const a = document.createElement('a');
+                a.href = url; a.download = name + '-page-' + (view.page + 1) + '.png';
+                document.body.appendChild(a); a.click(); a.remove();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+            }, 'image/png');
+        }
+
+        window.boardFullscreen = function(id) {
+            const el = $(id);
+            if (document.fullscreenElement) { document.exitFullscreen(); return; }
+            if (el.requestFullscreen) el.requestFullscreen();
+        };
+        document.addEventListener('fullscreenchange', () => {
+            setTimeout(() => { if (tView) tView.resize(); if (sView) sView.resize(); }, 150);
+        });
+
+        // Applies one broadcast message to a view (used by students)
+        function ensurePage(view, i) { while (view.pages.length <= i) view.pages.push(newPage()); }
+        function findEl(pg, id) { for (let i = pg.els.length - 1; i >= 0; i--) if (pg.els[i].id === id) return pg.els[i]; return null; }
+
+        function applyBoardMsg(view, m) {
+            switch (m.k) {
+                case 'sync_begin':
+                    view.pages = [];
+                    for (let i = 0; i < Math.max(1, m.n || 1); i++) view.pages.push(newPage((m.bgs || [])[i]));
+                    view.page = Math.min(m.page || 0, view.pages.length - 1);
+                    break;
+                case 'set': {
+                    ensurePage(view, m.pg);
+                    const pg = view.pages[m.pg];
+                    if (m.first) pg.els = [];
+                    (m.els || []).forEach(e => pg.els.push(e));
+                    break;
+                }
+                case 'page':
+                    ensurePage(view, Math.max((m.n || 1) - 1, m.pg));
+                    (m.bgs || []).forEach((b, i) => { if (view.pages[i]) view.pages[i].bg = b; });
+                    view.page = Math.min(m.pg, view.pages.length - 1);
+                    break;
+                case 'bg': ensurePage(view, m.pg); view.pages[m.pg].bg = m.bg; break;
+                case 'seg': {
+                    ensurePage(view, m.pg);
+                    const pg = view.pages[m.pg];
+                    let el = findEl(pg, m.id);
+                    if (!el) { el = { id: m.id, t: m.t, c: m.c, s: m.s, p: [] }; pg.els.push(el); }
+                    // "o" = index of the first point in this message; trimming to it makes a late sync and live segments agree
+                    if (typeof m.o === 'number' && el.p.length > m.o) el.p.length = m.o;
+                    for (let i = 0; i < m.p.length; i++) el.p.push(m.p[i]);
+                    break;
+                }
+                case 'upd': case 'add': {
+                    ensurePage(view, m.pg);
+                    const pg = view.pages[m.pg];
+                    const idx = pg.els.findIndex(e => e.id === m.el.id);
+                    if (idx >= 0) pg.els[idx] = m.el;
+                    else if (typeof m.i === 'number' && m.i < pg.els.length) pg.els.splice(m.i, 0, m.el);
+                    else pg.els.push(m.el);
+                    break;
+                }
+                case 'del': {
+                    ensurePage(view, m.pg);
+                    const pg = view.pages[m.pg], ids = new Set(m.ids);
+                    pg.els = pg.els.filter(e => !ids.has(e.id));
+                    break;
+                }
+                case 'clear': ensurePage(view, m.pg); view.pages[m.pg].els = []; break;
+                case 'mv': {
+                    ensurePage(view, m.pg);
+                    const el = findEl(view.pages[m.pg], m.id);
+                    if (el) { el.ox = m.ox; el.oy = m.oy; }
+                    break;
+                }
+                case 'laser':
+                    view.laser = m.on ? { x: m.x, y: m.y, t: Date.now() } : null;
+                    if (m.on) setTimeout(() => view.requestDraw(), 1600);
+                    break;
+            }
+            view.requestDraw();
+        }
+
+        // ----- saved board in the database (optional table: portal_boards) -----
+        async function loadBoardFromDb(cls) {
+            if (!isDbConnected || !cls) return null;
+            const { data, error } = await supabaseClient.from('portal_boards').select('data, updated_at').eq('class_name', cls).maybeSingle();
+            if (error || !data || !data.data || !Array.isArray(data.data.pages) || !data.data.pages.length) return null;
+            return data;
+        }
+
+        function pagesFromSaved(saved) {
+            return saved.pages.map(p => ({ bg: p.bg || 'white', els: p.els || [], h: [], r: [] }));
+        }
+
+        // ================= TEACHER SIDE =================
+        let tView = null, tTool = 'pen', tColor = '#111827', tSize = 4, tFill = false;
+        let tCls = '', tChannel = null, tLive = false;
+        let tCur = null, tDrawing = false, tSent = 0, tSegTimer = 0, tLastSend = 0;
+        let tSel = null, tDrag = null, tErased = null, tPendingDel = [], tDelTimer = 0;
+        let tTextOpen = false, tTextPos = null;
+        let tSaveTimer = 0, tSaveDisabled = false, tSyncTimer = 0;
+
+        const TOOLS = [
+            ['select', '✋', 'Select & move'], ['pen', '✏️', 'Pen'], ['hl', '🖍️', 'Highlighter'],
+            ['eraser', '🧽', 'Eraser (removes whole strokes)'], ['line', '╱', 'Line'], ['arrow', '➜', 'Arrow'],
+            ['rect', '▭', 'Rectangle'], ['ellipse', '◯', 'Ellipse'], ['text', 'T', 'Text'],
+            ['image', '🖼️', 'Insert image'], ['laser', '🔴', 'Laser pointer']
+        ];
+
+        function bsend(m) {
+            if (!tChannel || !tLive) return;
+            tChannel.send({ type: 'broadcast', event: 'b', payload: m });
+        }
+
+        function tPage() { return tView.curPage(); }
+
+        function setSaveStatus(t) { $('board-save-status').textContent = t; }
+
+        function scheduleSave() {
+            if (!tCls || tSaveDisabled) return;
+            clearTimeout(tSaveTimer);
+            setSaveStatus('Unsaved changes...');
+            tSaveTimer = setTimeout(saveBoardNow, 3000);
+        }
+
+        function serializeBoard() {
+            return { page: tView.page, pages: tView.pages.map(p => ({ bg: p.bg, els: p.els })) };
+        }
+
+        async function saveBoardNow() {
+            clearTimeout(tSaveTimer);
+            if (!tCls || !isDbConnected || tSaveDisabled) return;
+            const { error } = await supabaseClient.from('portal_boards')
+                .upsert({ class_name: tCls, data: serializeBoard(), updated_at: new Date().toISOString() }, { onConflict: 'class_name' });
+            if (error) {
+                console.error(error);
+                tSaveDisabled = true;
+                setSaveStatus('Autosave is off (run portal-board-setup.sql to enable it)');
+            } else {
+                setSaveStatus('Saved ' + new Date().toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }));
+            }
+        }
+
+        function updatePageUi() {
+            $('board-page-label').textContent = 'Page ' + (tView.page + 1) + ' / ' + tView.pages.length;
+            $('board-bg').value = tPage().bg;
+        }
+
+        function afterChange() { tView.requestDraw(); scheduleSave(); }
+
+        // ----- history (per page) -----
+        function pushHistory(a) { const pg = tPage(); pg.h.push(a); pg.r.length = 0; }
+
+        function removeIds(pg, ids) { const set = new Set(ids); pg.els = pg.els.filter(e => !set.has(e.id)); }
+
+        function applyUndo(pg, a) {
+            const pgi = tView.pages.indexOf(pg);
+            if (a.k === 'add') { removeIds(pg, [a.el.id]); bsend({ k: 'del', pg: pgi, ids: [a.el.id] }); }
+            else if (a.k === 'del') {
+                a.items.slice().sort((x, y) => x.idx - y.idx).forEach(it => { pg.els.splice(Math.min(it.idx, pg.els.length), 0, it.el); bsend({ k: 'add', pg: pgi, el: it.el, i: it.idx }); });
+            } else if (a.k === 'mv') {
+                const el = findEl(pg, a.id); if (el) { el.ox = a.from.ox; el.oy = a.from.oy; bsend({ k: 'mv', pg: pgi, id: a.id, ox: el.ox, oy: el.oy }); }
+            } else if (a.k === 'clear') { pg.els = a.els.slice(); sendPageEls(pgi); }
+        }
+
+        function applyRedo(pg, a) {
+            const pgi = tView.pages.indexOf(pg);
+            if (a.k === 'add') { pg.els.push(a.el); bsend({ k: 'add', pg: pgi, el: a.el }); }
+            else if (a.k === 'del') { const ids = a.items.map(i => i.el.id); removeIds(pg, ids); bsend({ k: 'del', pg: pgi, ids }); }
+            else if (a.k === 'mv') { const el = findEl(pg, a.id); if (el) { el.ox = a.to.ox; el.oy = a.to.oy; bsend({ k: 'mv', pg: pgi, id: a.id, ox: el.ox, oy: el.oy }); } }
+            else if (a.k === 'clear') { pg.els = []; bsend({ k: 'clear', pg: pgi }); }
+        }
+
+        window.boardUndo = function() {
+            if (!tView) return;
+            const pg = tPage(), a = pg.h.pop(); if (!a) return;
+            applyUndo(pg, a); pg.r.push(a); tView.selected = null; afterChange();
+        };
+        window.boardRedo = function() {
+            if (!tView) return;
+            const pg = tPage(), a = pg.r.pop(); if (!a) return;
+            applyRedo(pg, a); pg.h.push(a); afterChange();
+        };
+
+        window.boardDeleteSelected = function() {
+            if (!tView || !tView.selected) return;
+            const pg = tPage(), idx = pg.els.findIndex(e => e.id === tView.selected);
+            if (idx < 0) return;
+            const el = pg.els[idx];
+            pg.els.splice(idx, 1);
+            pushHistory({ k: 'del', items: [{ el, idx }] });
+            bsend({ k: 'del', pg: tView.page, ids: [el.id] });
+            tView.selected = null; afterChange();
+        };
+
+        window.boardClearPage = function() {
+            const pg = tPage();
+            if (!pg.els.length) return;
+            if (!confirm('Clear this page? (You can still undo it.)')) return;
+            pushHistory({ k: 'clear', els: pg.els.slice() });
+            pg.els = []; tView.selected = null;
+            bsend({ k: 'clear', pg: tView.page }); afterChange();
+        };
+
+        // ----- pages -----
+        function sendPageSwitch() {
+            bsend({ k: 'page', pg: tView.page, n: tView.pages.length, bgs: tView.pages.map(p => p.bg) });
+        }
+
+        window.boardGoPage = function(d) {
+            const n = Math.max(0, Math.min(tView.pages.length - 1, tView.page + d));
+            if (n === tView.page) return;
+            commitText(false);
+            tView.page = n; tView.selected = null; updatePageUi(); sendPageSwitch(); tView.requestDraw(); scheduleSave();
+        };
+        window.boardAddPage = function() {
+            commitText(false);
+            tView.pages.push(newPage(tPage().bg));
+            tView.page = tView.pages.length - 1; tView.selected = null;
+            updatePageUi(); sendPageSwitch(); tView.requestDraw(); scheduleSave();
+        };
+        window.boardDeletePage = function() {
+            if (tView.pages.length === 1) { window.boardClearPage(); return; }
+            if (!confirm('Delete page ' + (tView.page + 1) + '?')) return;
+            tView.pages.splice(tView.page, 1);
+            tView.page = Math.min(tView.page, tView.pages.length - 1); tView.selected = null;
+            updatePageUi(); broadcastFullSync(); tView.requestDraw(); scheduleSave();
+        };
+        window.boardNewBoard = function() {
+            if (!confirm('Start a completely new board? All pages will be erased.')) return;
+            tView.pages = [newPage()]; tView.page = 0; tView.selected = null;
+            updatePageUi(); broadcastFullSync(); tView.requestDraw(); scheduleSave();
+        };
+
+        window.adminBoardPng = function() { if (tView) exportBoardPng(tView, 'board-' + (tCls || 'draft').replace(/[^\w-]+/g, '_')); };
+        window.studentBoardPng = function() { if (sView) exportBoardPng(sView, 'board-' + (sCls || 'class').replace(/[^\w-]+/g, '_')); };
+
+        // ----- full sync (late joiners / page deletion / new board) -----
+        function chunkEls(els) {
+            const chunks = []; let cur = [], size = 0;
+            els.forEach(el => {
+                const l = (el.src ? el.src.length : 0) + (el.p ? el.p.length * 5 : 0) + 200;
+                if (cur.length && size + l > 60000) { chunks.push(cur); cur = []; size = 0; }
+                cur.push(el); size += l;
+            });
+            if (cur.length) chunks.push(cur);
+            return chunks;
+        }
+
+        let syncRunning = false, syncAgain = false;
+        async function broadcastFullSync() {
+            if (!tChannel || !tLive) return;
+            if (syncRunning) { syncAgain = true; return; }
+            syncRunning = true;
+            try {
+                do {
+                    syncAgain = false;
+                    const pages = tView.pages.map(p => ({ bg: p.bg, els: p.els.slice() }));
+                    const page = tView.page;
+                    await tChannel.send({ type: 'broadcast', event: 'b', payload: { k: 'sync_begin', n: pages.length, page, bgs: pages.map(p => p.bg) } });
+                    for (let i = 0; i < pages.length; i++) {
+                        const chunks = chunkEls(pages[i].els);
+                        for (let c = 0; c < chunks.length; c++) {
+                            await tChannel.send({ type: 'broadcast', event: 'b', payload: { k: 'set', pg: i, first: c === 0, els: chunks[c] } });
+                            await sleep(25);
+                        }
+                    }
+                } while (syncAgain);
+            } catch (e) { console.error(e); }
+            syncRunning = false;
+        }
+
+        async function sendPageEls(pgi) {
+            if (!tChannel || !tLive) return;
+            const chunks = chunkEls(tView.pages[pgi].els);
+            if (!chunks.length) { bsend({ k: 'clear', pg: pgi }); return; }
+            for (let c = 0; c < chunks.length; c++) {
+                await tChannel.send({ type: 'broadcast', event: 'b', payload: { k: 'set', pg: pgi, first: c === 0, els: chunks[c] } });
+                await sleep(25);
+            }
+        }
+
+        function scheduleSync() { clearTimeout(tSyncTimer); tSyncTimer = setTimeout(broadcastFullSync, 500); }
+
+        // ----- live session -----
+        function updateLiveUi() {
+            const btn = $('board-live-btn'), st = $('board-live-status');
+            if (tLive) {
+                btn.textContent = 'End live'; btn.className = 'px-4 py-2 text-sm font-semibold rounded-lg bg-gray-800 hover:bg-gray-900 text-white';
+                const state = tChannel ? tChannel.presenceState() : {};
+                let n = 0; Object.values(state).forEach(arr => arr.forEach(p => { if (p.role === 'student') n++; }));
+                st.innerHTML = '<span class="inline-block w-2 h-2 rounded-full bg-red-500 animate-pulse mr-1 align-middle"></span><b>LIVE</b> for ' + escapeHtml(tCls) + ' &middot; ' + n + ' student' + (n === 1 ? '' : 's') + ' watching';
+            } else {
+                btn.textContent = 'Go live'; btn.className = 'px-4 py-2 text-sm font-semibold rounded-lg bg-red-600 hover:bg-red-700 text-white';
+                st.textContent = 'Not live. Draw freely to prepare, students see it once you go live.';
+            }
+        }
+
+        async function endLive() {
+            if (tChannel) { try { await tChannel.untrack(); } catch (e) {} supabaseClient.removeChannel(tChannel); }
+            tChannel = null; tLive = false; updateLiveUi();
+        }
+
+        window.adminBoardToggleLive = async function() {
+            if (!isDbConnected) return alert('Database not connected.');
+            if (tLive) { await endLive(); return; }
+            if (!tCls) return alert('Choose a class first.');
+            const status = $('board-live-status');
+            status.textContent = 'Connecting...';
+            const ch = supabaseClient.channel(boardSlug(tCls), { config: { broadcast: { self: false }, presence: { key: 'teacher-' + bid() } } });
+            tChannel = ch;
+            ch.on('presence', { event: 'sync' }, () => updateLiveUi());
+            ch.on('presence', { event: 'join' }, ({ newPresences }) => { if ((newPresences || []).some(p => p.role === 'student')) scheduleSync(); });
+            ch.on('broadcast', { event: 'req' }, () => scheduleSync());
+            ch.subscribe(async s => {
+                if (s === 'SUBSCRIBED') {
+                    await ch.track({ role: 'teacher' });
+                    tLive = true; updateLiveUi(); broadcastFullSync();
+                } else if (s === 'CHANNEL_ERROR' || s === 'TIMED_OUT') {
+                    status.textContent = 'Could not connect. Check your internet and Supabase Realtime, then try again.';
+                    tLive = false;
+                }
+            });
+        };
+
+        window.adminBoardClassChanged = async function() {
+            const newCls = $('admin-board-class').value;
+            if (newCls === tCls) return;
+            if (tLive && !confirm('Switching class ends the current live session. Continue?')) { $('admin-board-class').value = tCls; return; }
+            if (tLive) await endLive();
+            if (tCls) await saveBoardNow();
+            tCls = newCls; tSaveDisabled = false;
+            setSaveStatus('');
+            const saved = await loadBoardFromDb(tCls);
+            tView.pages = saved ? pagesFromSaved(saved) : [newPage()];
+            tView.page = saved ? Math.min(saved.data.page || 0, tView.pages.length - 1) : 0;
+            tView.selected = null;
+            updatePageUi(); tView.requestDraw();
+            if (saved) setSaveStatus('Loaded the saved board');
+        };
+
+        window.adminBoardShown = function() {
+            if (!tView) return;
+            tView.resize();
+            const sel = $('admin-board-class');
+            if (tCls && sel.value !== tCls) sel.value = tCls;
+        };
+
+        // ----- text tool -----
+        function textSize() { return 16 + tSize * 4; }
+
+        function openTextInput(x, y) {
+            const ta = $('board-text-input'), r = tView.canvas.getBoundingClientRect(), sc = r.width / BOARD_W;
+            tTextPos = { x, y }; tTextOpen = true;
+            ta.style.left = (x * sc) + 'px'; ta.style.top = (y * sc) + 'px';
+            ta.style.fontSize = (textSize() * sc) + 'px'; ta.style.lineHeight = '1.25';
+            ta.style.color = tColor === '#ffffff' ? '#111827' : tColor;
+            ta.style.minWidth = '160px'; ta.style.maxWidth = Math.max(160, r.width - x * sc - 8) + 'px';
+            ta.rows = 2; ta.value = '';
+            ta.classList.remove('hidden');
+            setTimeout(() => ta.focus(), 0);
+        }
+
+        function commitText(cancel) {
+            if (!tTextOpen) return;
+            tTextOpen = false;
+            const ta = $('board-text-input'), val = ta.value.replace(/\s+$/, '');
+            ta.classList.add('hidden'); ta.value = '';
+            if (cancel || !val.trim()) return;
+            const fs = textSize(), lines = val.split('\n'), ctx = tView.ctx;
+            ctx.save(); ctx.font = BOARD_FONT(fs);
+            const w = Math.max(...lines.map(l => ctx.measureText(l).width));
+            ctx.restore();
+            const el = { id: bid(), t: 'text', c: tColor, s: tSize, fs, x: Math.round(tTextPos.x), y: Math.round(tTextPos.y), txt: val, w: Math.ceil(w), h: Math.ceil(lines.length * fs * 1.25), ox: 0, oy: 0 };
+            tPage().els.push(el);
+            pushHistory({ k: 'add', el });
+            bsend({ k: 'add', pg: tView.page, el });
+            afterChange();
+        }
+
+        // ----- image tool -----
+        function shrinkImage(file) {
+            return new Promise((resolve, reject) => {
+                const url = URL.createObjectURL(file), img = new Image();
+                img.onload = () => {
+                    URL.revokeObjectURL(url);
+                    let maxSide = 900, q = 0.8, out = null, w = 0, h = 0;
+                    for (let tries = 0; tries < 6; tries++) {
+                        const sc = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+                        w = Math.max(1, Math.round(img.naturalWidth * sc)); h = Math.max(1, Math.round(img.naturalHeight * sc));
+                        const c = document.createElement('canvas'); c.width = w; c.height = h;
+                        const cx = c.getContext('2d'); cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, w, h); cx.drawImage(img, 0, 0, w, h);
+                        out = c.toDataURL('image/jpeg', q);
+                        if (out.length <= 150000) break;
+                        q = Math.max(0.5, q - 0.1); maxSide = Math.round(maxSide * 0.8);
+                    }
+                    resolve({ src: out, w, h });
+                };
+                img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('bad image')); };
+                img.src = url;
+            });
+        }
+
+        async function insertImageFile(file) {
+            try {
+                const r = await shrinkImage(file);
+                const sc = Math.min(1, 640 / r.w, 560 / r.h), w = Math.round(r.w * sc), h = Math.round(r.h * sc);
+                const el = { id: bid(), t: 'img', x: Math.round((BOARD_W - w) / 2), y: Math.round((BOARD_H - h) / 2), w, h, src: r.src, ox: 0, oy: 0, c: '#000', s: 1 };
+                tPage().els.push(el);
+                pushHistory({ k: 'add', el });
+                bsend({ k: 'add', pg: tView.page, el });
+                setTool('select'); tView.selected = el.id; afterChange();
+            } catch (e) { alert('Could not use this image.'); }
+        }
+
+        // ----- pointer handling -----
+        function boardPos(e) {
+            const r = tView.canvas.getBoundingClientRect();
+            return [(e.clientX - r.left) * BOARD_W / r.width, (e.clientY - r.top) * BOARD_H / r.height];
+        }
+
+        function flushPen() {
+            tSegTimer = 0;
+            if (!tCur || tCur.p.length <= tSent) return;
+            bsend({ k: 'seg', pg: tView.page, id: tCur.id, t: tCur.t, c: tCur.c, s: tCur.s, o: tSent, p: tCur.p.slice(tSent) });
+            tSent = tCur.p.length;
+        }
+
+        function sendShape() {
+            const now = Date.now();
+            if (now - tLastSend < 50) return;
+            tLastSend = now;
+            bsend({ k: 'upd', pg: tView.page, el: tCur });
+        }
+
+        function flushDeletes() {
+            tDelTimer = 0;
+            if (!tPendingDel.length) return;
+            bsend({ k: 'del', pg: tView.page, ids: tPendingDel }); tPendingDel = [];
+        }
+
+        function eraseAt(x, y) {
+            const pg = tPage(), tol = tSize * 1.5 + 6;
+            for (let i = pg.els.length - 1; i >= 0; i--) {
+                if (hitEl(pg.els[i], x, y, tol)) {
+                    const el = pg.els[i];
+                    tErased.push({ el, idx: i });
+                    pg.els.splice(i, 1);
+                    tPendingDel.push(el.id);
+                }
+            }
+            if (tPendingDel.length && !tDelTimer) tDelTimer = setTimeout(flushDeletes, 40);
+            tView.requestDraw();
+        }
+
+        function onDown(e) {
+            if (e.pointerType === 'mouse' && e.button !== 0) return;
+            e.preventDefault();
+            if (tTextOpen) $('board-text-input').blur();
+            tView.canvas.setPointerCapture(e.pointerId);
+            const [x0, y0] = boardPos(e), x = Math.round(x0), y = Math.round(y0), pg = tPage();
+            tDrawing = true;
+
+            if (tTool === 'pen' || tTool === 'hl') {
+                tCur = { id: bid(), t: tTool, c: tColor, s: tSize, p: [x, y] };
+                pg.els.push(tCur); tSent = 0; flushPen();
+            } else if (tTool === 'line' || tTool === 'arrow' || tTool === 'rect' || tTool === 'ellipse') {
+                tCur = { id: bid(), t: tTool, c: tColor, s: tSize, a: [x, y, x, y], f: tFill && (tTool === 'rect' || tTool === 'ellipse'), ox: 0, oy: 0 };
+                pg.els.push(tCur);
+            } else if (tTool === 'eraser') {
+                tErased = []; eraseAt(x0, y0);
+            } else if (tTool === 'select') {
+                let hit = null;
+                for (let i = pg.els.length - 1; i >= 0; i--) if (hitEl(pg.els[i], x0, y0, 10)) { hit = pg.els[i]; break; }
+                tView.selected = hit ? hit.id : null;
+                tDrag = hit ? { id: hit.id, sx: x0, sy: y0, ox: hit.ox || 0, oy: hit.oy || 0, moved: false } : null;
+                if (!hit) tDrawing = false;
+            } else if (tTool === 'text') {
+                tDrawing = false; openTextInput(x0, y0);
+            } else if (tTool === 'laser') {
+                tView.laser = { x, y, t: Date.now() }; bsend({ k: 'laser', on: true, x, y });
+            }
+            tView.requestDraw();
+        }
+
+        function onMove(e) {
+            if (!tDrawing) return;
+            const [x0, y0] = boardPos(e), x = Math.round(x0), y = Math.round(y0);
+            if ((tTool === 'pen' || tTool === 'hl') && tCur) {
+                const n = tCur.p.length;
+                if (Math.hypot(x - tCur.p[n - 2], y - tCur.p[n - 1]) >= 1.5) {
+                    tCur.p.push(x, y);
+                    if (!tSegTimer) tSegTimer = setTimeout(flushPen, 40);
+                }
+            } else if (tCur && tCur.a) {
+                tCur.a[2] = x; tCur.a[3] = y;
+                if (e.shiftKey && (tTool === 'rect' || tTool === 'ellipse')) {
+                    const s = Math.max(Math.abs(x - tCur.a[0]), Math.abs(y - tCur.a[1]));
+                    tCur.a[2] = tCur.a[0] + (x >= tCur.a[0] ? s : -s); tCur.a[3] = tCur.a[1] + (y >= tCur.a[1] ? s : -s);
+                }
+                sendShape();
+            } else if (tTool === 'eraser') {
+                eraseAt(x0, y0);
+            } else if (tTool === 'select' && tDrag) {
+                const el = findEl(tPage(), tDrag.id);
+                if (el) {
+                    el.ox = Math.round(tDrag.ox + x0 - tDrag.sx); el.oy = Math.round(tDrag.oy + y0 - tDrag.sy);
+                    tDrag.moved = true;
+                    const now = Date.now();
+                    if (now - tLastSend > 50) { tLastSend = now; bsend({ k: 'mv', pg: tView.page, id: el.id, ox: el.ox, oy: el.oy }); }
+                }
+            } else if (tTool === 'laser') {
+                tView.laser = { x, y, t: Date.now() };
+                const now = Date.now();
+                if (now - tLastSend > 40) { tLastSend = now; bsend({ k: 'laser', on: true, x, y }); }
+                setTimeout(() => tView.requestDraw(), 1600);
+            }
+            tView.requestDraw();
+        }
+
+        function onUp() {
+            if (!tDrawing) return;
+            tDrawing = false;
+            const pg = tPage();
+            if ((tTool === 'pen' || tTool === 'hl') && tCur) {
+                clearTimeout(tSegTimer); flushPen();
+                pushHistory({ k: 'add', el: tCur });
+            } else if (tCur && tCur.a) {
+                const big = Math.hypot(tCur.a[2] - tCur.a[0], tCur.a[3] - tCur.a[1]) >= 3;
+                if (big) { bsend({ k: 'upd', pg: tView.page, el: tCur }); pushHistory({ k: 'add', el: tCur }); }
+                else { removeIds(pg, [tCur.id]); bsend({ k: 'del', pg: tView.page, ids: [tCur.id] }); }
+            } else if (tTool === 'eraser') {
+                clearTimeout(tDelTimer); flushDeletes();
+                if (tErased && tErased.length) pushHistory({ k: 'del', items: tErased });
+                tErased = null;
+            } else if (tTool === 'select' && tDrag) {
+                const el = findEl(pg, tDrag.id);
+                if (el && tDrag.moved) {
+                    bsend({ k: 'mv', pg: tView.page, id: el.id, ox: el.ox, oy: el.oy });
+                    pushHistory({ k: 'mv', id: el.id, from: { ox: tDrag.ox, oy: tDrag.oy }, to: { ox: el.ox, oy: el.oy } });
+                }
+                tDrag = null;
+            } else if (tTool === 'laser') {
+                bsend({ k: 'laser', on: false });
+                tView.laser = null;
+            }
+            tCur = null;
+            afterChange();
+        }
+
+        function setTool(t) {
+            if (t === 'image') { $('board-image-file').click(); return; }
+            commitText(false);
+            tTool = t;
+            document.querySelectorAll('#board-tools .btool').forEach(b => b.classList.toggle('btool-on', b.dataset.tool === t));
+            if (tView) {
+                tView.canvas.style.cursor = t === 'select' ? 'default' : t === 'text' ? 'text' : 'crosshair';
+                if (t !== 'select') { tView.selected = null; tView.requestDraw(); }
+            }
+        }
+
+        function setColor(c) {
+            tColor = c;
+            document.querySelectorAll('#board-colors .bcolor').forEach(b => b.classList.toggle('bcolor-on', b.dataset.c === c));
+        }
+
+        function initTeacherBoard() {
+            const canvas = $('admin-board-canvas');
+            tView = createBoardView(canvas);
+            $('board-tools').innerHTML = TOOLS.map(t => `<button type="button" class="btool" data-tool="${t[0]}" title="${t[2]}">${t[1]}</button>`).join('');
+            $('board-tools').addEventListener('click', e => { const b = e.target.closest('.btool'); if (b) setTool(b.dataset.tool); });
+            $('board-colors').innerHTML = BOARD_COLORS.map(c => `<button type="button" class="bcolor" data-c="${c}" style="background:${c}" title="${c}"></button>`).join('');
+            $('board-colors').addEventListener('click', e => { const b = e.target.closest('.bcolor'); if (b) setColor(b.dataset.c); });
+            $('board-color-custom').addEventListener('input', e => setColor(e.target.value));
+            $('board-size').addEventListener('input', e => { tSize = +e.target.value; $('board-size-val').textContent = tSize; });
+            $('board-fill').addEventListener('change', e => { tFill = e.target.checked; });
+            $('board-bg').addEventListener('change', e => {
+                const bg = e.target.value, pg = tPage(), wasDark = pg.bg === 'dark';
+                pg.bg = bg;
+                if (bg === 'dark' && tColor === '#111827') setColor('#ffffff');
+                else if (wasDark && bg !== 'dark' && tColor === '#ffffff') setColor('#111827');
+                bsend({ k: 'bg', pg: tView.page, bg }); afterChange();
+            });
+            $('board-image-file').addEventListener('change', e => { const f = e.target.files[0]; e.target.value = ''; if (f) insertImageFile(f); });
+            canvas.addEventListener('pointerdown', onDown);
+            canvas.addEventListener('pointermove', onMove);
+            canvas.addEventListener('pointerup', onUp);
+            canvas.addEventListener('pointercancel', onUp);
+            const ta = $('board-text-input');
+            ta.addEventListener('blur', () => commitText(false));
+            ta.addEventListener('keydown', e => {
+                if (e.key === 'Escape') { e.preventDefault(); commitText(true); }
+                else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); commitText(false); }
+            });
+            ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; });
+            document.addEventListener('keydown', e => {
+                if ($('admin-board-container').classList.contains('hidden') || $('admin-view').classList.contains('hidden')) return;
+                const tag = (e.target.tagName || '').toLowerCase();
+                if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable) return;
+                if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); e.shiftKey ? window.boardRedo() : window.boardUndo(); }
+                else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); window.boardRedo(); }
+                else if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); window.boardDeleteSelected(); }
+                else if (e.key === 'Escape') { tView.selected = null; tView.requestDraw(); }
+            });
+            window.addEventListener('beforeunload', () => { if (tCls && !tSaveDisabled) { clearTimeout(tSaveTimer); saveBoardNow(); } });
+            setTool('pen'); setColor(tColor); updatePageUi(); updateLiveUi();
+        }
+
+        // Leaving admin mode ends the live session
+        (function() {
+            const origSetRole = window.setRole;
+            window.setRole = async function(role) {
+                if (role === 'student' && tLive) {
+                    if (!confirm('Exit admin mode? Your live board session will end.')) return;
+                    await endLive();
+                }
+                if (role === 'student' && tCls) saveBoardNow();
+                return origSetRole.apply(this, arguments);
+            };
+        })();
+
+        // ================= STUDENT SIDE =================
+        let sView = null, sChannel = null, sCls = '', sTeacherLive = false, sConnected = false, sHasSaved = false;
+
+        function updateStudentStatus() {
+            const el = $('student-board-status');
+            if (!sConnected) el.innerHTML = 'Connecting...';
+            else if (sTeacherLive) el.innerHTML = '<span class="inline-block w-2 h-2 rounded-full bg-red-500 animate-pulse mr-1 align-middle"></span><span class="text-red-600 font-semibold">LIVE</span> &middot; your teacher is writing';
+            else el.textContent = sHasSaved ? 'Your teacher is not live right now. Showing the last saved board.' : 'Your teacher is not live yet. The board will appear here when the class starts.';
+            if (sView) $('student-board-page').textContent = sView.pages.length > 1 || sView.pages[0].els.length ? 'Page ' + (sView.page + 1) + ' / ' + sView.pages.length : '';
+        }
+
+        window.startStudentBoard = async function() {
+            if (!currentStudentClass || !isDbConnected) return;
+            if (!sView) sView = createBoardView($('student-board-canvas'));
+            if (sChannel && sCls === currentStudentClass) { sView.resize(); return; }
+            window.stopStudentBoard();
+            sCls = currentStudentClass; sConnected = false; sTeacherLive = false; sHasSaved = false;
+            sView.pages = [newPage()]; sView.page = 0; sView.laser = null;
+            sView.resize(); updateStudentStatus();
+            const myCls = sCls;
+            loadBoardFromDb(myCls).then(saved => {
+                if (saved && sCls === myCls && !sTeacherLive) {
+                    sView.pages = pagesFromSaved(saved);
+                    sView.page = Math.min(saved.data.page || 0, sView.pages.length - 1);
+                    sHasSaved = true; sView.requestDraw(); updateStudentStatus();
+                }
+            });
+            const ch = supabaseClient.channel(boardSlug(myCls), { config: { broadcast: { self: false }, presence: { key: 'student-' + bid() } } });
+            sChannel = ch;
+            ch.on('broadcast', { event: 'b' }, ({ payload }) => {
+                if (sCls !== myCls) return;
+                sTeacherLive = true; sHasSaved = true;
+                applyBoardMsg(sView, payload);
+                updateStudentStatus();
+            });
+            ch.on('presence', { event: 'sync' }, () => {
+                const st = ch.presenceState();
+                const live = Object.values(st).some(arr => arr.some(p => p.role === 'teacher'));
+                const wasLive = sTeacherLive;
+                sTeacherLive = live;
+                if (live && !wasLive) ch.send({ type: 'broadcast', event: 'req', payload: {} });
+                updateStudentStatus();
+            });
+            ch.subscribe(async s => {
+                if (s === 'SUBSCRIBED') {
+                    sConnected = true;
+                    await ch.track({ role: 'student' });
+                    ch.send({ type: 'broadcast', event: 'req', payload: {} });
+                    updateStudentStatus();
+                } else if (s === 'CHANNEL_ERROR' || s === 'TIMED_OUT' || s === 'CLOSED') {
+                    sConnected = false; updateStudentStatus();
+                }
+            });
+        };
+
+        window.stopStudentBoard = function() {
+            if (sChannel) { try { supabaseClient.removeChannel(sChannel); } catch (e) {} sChannel = null; }
+            sCls = ''; sConnected = false; sTeacherLive = false;
+        };
+
+        initTeacherBoard();
 
     </script>
 </body>
