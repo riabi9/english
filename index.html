@@ -3096,7 +3096,7 @@ class Board {
         this.tool = 'pen'; this.color = BD.COLORS[0]; this.size = 4; this.fill = false;
         this.sel = null; this.lasers = {}; this.hist = []; this.redoS = []; this.imgs = {};
         this.tr = null; this.cls = null; this.online = []; this.status = 'offline';
-        this.hasState = this.isT; this.pend = { pts: [], shape: false, del: [], mv: null };
+        this.hasState = this.isT; this.pend = { pts: [], shape: false, del: [], mv: null, upd: null };
         this.drag = null; this.rafId = 0; this.saveT = null; this.syncT = null; this.syncId = null;
         this.build();
         this.bind();
@@ -3318,7 +3318,7 @@ class Board {
         this.color = c;
         const inp = this.mount.querySelector('.bd-color-input'); if (/^#[0-9a-f]{6}$/i.test(c)) inp.value = c;
         const o = this.selObj();
-        if (o && this.isT && o.k !== 'img') { this.emit({ t: 'upd', p: this.cur, id: o.id, f: { c } }); this.save(); }
+        if (o && this.isT && o.k !== 'img') { this.emit({ t: 'upd', p: this.cur, id: o.id, u: { c } }); this.save(); }
         this.refreshUi();
     }
 
@@ -3384,7 +3384,7 @@ class Board {
         switch (op.t) {
             case 'add': if (!pg) return; { const i = pg.objs.findIndex(o => o.id === op.o.id); if (i >= 0) pg.objs[i] = op.o; else pg.objs.push(op.o); } break;
             case 'pts': { const o = this.findObj(op.p, op.id); if (o && o.pts) o.pts.push(...op.pts); } break;
-            case 'upd': { const o = this.findObj(op.p, op.id); if (o) Object.assign(o, op.f); } break;
+            case 'upd': { const o = this.findObj(op.p, op.id); if (o) Object.assign(o, op.u); } break;
             case 'del': if (pg) { const s = new Set(op.ids); pg.objs = pg.objs.filter(o => !s.has(o.id)); if (this.sel && s.has(this.sel)) this.sel = null; } break;
             case 'mv': if (pg) for (const id of op.ids) { const o = this.findObj(op.p, id); if (o) this.moveObj(o, op.dx, op.dy); } break;
             case 'clr': if (pg) { pg.objs = []; this.sel = null; } break;
@@ -3545,6 +3545,12 @@ class Board {
             if (b) {
                 ctx.save(); ctx.strokeStyle = '#4f46e5'; ctx.lineWidth = 2 / this.cssScale; ctx.setLineDash([8 / this.cssScale, 6 / this.cssScale]);
                 ctx.strokeRect(b.x - 8, b.y - 8, b.w + 16, b.h + 16); ctx.restore();
+                if (so.k === 'img') {
+                    const hs = 9 / this.cssScale;
+                    ctx.save(); ctx.fillStyle = '#fff'; ctx.strokeStyle = '#4f46e5'; ctx.lineWidth = 2.5 / this.cssScale;
+                    for (const [cx, cy] of this.corners(so)) { ctx.beginPath(); ctx.arc(cx, cy, hs, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); }
+                    ctx.restore();
+                }
             }
         }
         const now = Date.now(); let alive = false;
@@ -3640,6 +3646,12 @@ class Board {
         }
         ctx.restore();
     }
+    corners(o) { return [[o.x, o.y, 'nw'], [o.x + o.w, o.y, 'ne'], [o.x, o.y + o.h, 'sw'], [o.x + o.w, o.y + o.h, 'se']]; }
+    handleAt(o, p) {
+        const r = 18 / this.cssScale;
+        for (const [cx, cy, name] of this.corners(o)) if (Math.hypot(p.x - cx, p.y - cy) <= r) return name;
+        return null;
+    }
     triPts(o) { return [[(o.x1 + o.x2) / 2, o.y1], [o.x1, o.y2], [o.x2, o.y2]]; }
     textSize(o) {
         this.ctx.save(); this.ctx.font = this.fontFor(o);
@@ -3713,6 +3725,7 @@ class Board {
         }
         if (pd.del.length) { this.send({ t: 'del', p, ids: pd.del }); pd.del = []; }
         if (pd.mv) { this.send({ t: 'mv', p, ids: [pd.mv.id], dx: pd.mv.dx, dy: pd.mv.dy }); pd.mv = null; }
+        if (pd.upd && this.drag) { this.send({ t: 'upd', p, id: this.drag.id, u: pd.upd }); pd.upd = null; }
     }
 
     down(e) {
@@ -3738,6 +3751,13 @@ class Board {
             this.drag = { type: 'erase', erased: [] };
             this.eraseAt(p);
         } else if (t === 'select') {
+            const so = this.selObj();
+            const hn = so && so.k === 'img' ? this.handleAt(so, p) : null;
+            if (hn) {
+                const opp = { nw: [so.x + so.w, so.y + so.h], ne: [so.x, so.y + so.h], sw: [so.x + so.w, so.y], se: [so.x, so.y] }[hn];
+                this.drag = { type: 'resize', id: so.id, corner: hn, ax: opp[0], ay: opp[1], ratio: so.h / so.w, from: { x: so.x, y: so.y, w: so.w, h: so.h } };
+                this.schedule(); return;
+            }
             const h = this.topHit(p.x, p.y, this.hitR(), true);
             this.sel = h ? h.id : null;
             if (h) this.drag = { type: 'mv', lx: p.x, ly: p.y, tx: 0, ty: 0, id: h.id };
@@ -3749,8 +3769,24 @@ class Board {
     move(e) {
         const p = this.pt(e);
         if (this.tool === 'laser' && this.isT) { this.laser(p); return; }
-        const d = this.drag; if (!d) return;
-        if (d.type === 'pen') {
+        const d = this.drag;
+        if (!d) {
+            if (this.tool === 'select' && this.isT) {
+                const so = this.selObj();
+                const hn = so && so.k === 'img' ? this.handleAt(so, p) : null;
+                this.canvas.style.cursor = hn ? (hn === 'nw' || hn === 'se' ? 'nwse-resize' : 'nesw-resize') : 'default';
+            }
+            return;
+        }
+        if (d.type === 'resize') {
+            const o = this.findObj(this.cur, d.id); if (!o) return;
+            let w = Math.max(40, Math.min(BD.W * 1.5, Math.abs(p.x - d.ax)));
+            const h = w * d.ratio;
+            const left = d.corner === 'nw' || d.corner === 'sw', top = d.corner === 'nw' || d.corner === 'ne';
+            o.w = Math.round(w); o.h = Math.round(h);
+            o.x = Math.round(left ? d.ax - o.w : d.ax); o.y = Math.round(top ? d.ay - o.h : d.ay);
+            this.pend.upd = { x: o.x, y: o.y, w: o.w, h: o.h }; this.queue();
+        } else if (d.type === 'pen') {
             const last = d.obj.pts[d.obj.pts.length - 1];
             if (Math.hypot(p.x - last[0], p.y - last[1]) < 0.8 / this.cssScale * 0.6) return;
             d.obj.pts.push([p.x, p.y]); this.pend.pts.push([p.x, p.y]); this.queue();
@@ -3791,6 +3827,13 @@ class Board {
             else { this.send({ t: 'add', p, o: d.obj }); this.pushHist({ a: 'add', p, o: JSON.parse(JSON.stringify(d.obj)) }); }
         } else if (d.type === 'erase') {
             if (d.erased.length) this.pushHist({ a: 'del', p, os: d.erased });
+        } else if (d.type === 'resize') {
+            const o = this.findObj(p, d.id);
+            if (o) {
+                const to = { x: o.x, y: o.y, w: o.w, h: o.h };
+                this.send({ t: 'upd', p, id: d.id, u: to });
+                if (to.w !== d.from.w) this.pushHist({ a: 'upd', p, id: d.id, from: d.from, to });
+            }
         } else if (d.type === 'mv') {
             if (d.tx || d.ty) this.pushHist({ a: 'mv', p, id: d.id, dx: d.tx, dy: d.ty });
         }
@@ -3866,7 +3909,7 @@ class Board {
             else {
                 const old = ed.obj.t;
                 this.pushHist({ a: 'upd', p, id: ed.obj.id, from: { t: old }, to: { t: val } });
-                this.emit({ t: 'upd', p, id: ed.obj.id, f: { t: val } });
+                this.emit({ t: 'upd', p, id: ed.obj.id, u: { t: val } });
             }
         } else if (val) {
             const o = { id: newId(), k: 'text', c: ed.color, s: ed.size, t: val, x: ed.x, y: ed.y, by: this.by() };
@@ -3936,7 +3979,7 @@ class Board {
             case 'del': rev ? a.os.forEach(add) : del(a.os.map(o => o.id)); break;
             case 'mv': this.emit({ t: 'mv', p, ids: [a.id], dx: rev ? -a.dx : a.dx, dy: rev ? -a.dy : a.dy }); break;
             case 'clr': rev ? a.os.forEach(add) : this.emit({ t: 'clr', p }); break;
-            case 'upd': this.emit({ t: 'upd', p, id: a.id, f: rev ? a.from : a.to }); break;
+            case 'upd': this.emit({ t: 'upd', p, id: a.id, u: rev ? a.from : a.to }); break;
         }
     }
 
