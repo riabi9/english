@@ -51,6 +51,19 @@
         .bd-pulse { animation: bdPulse 1.4s infinite; }
         @keyframes bdPulse { 0%,100% { opacity:1; } 50% { opacity:.35; } }
         .bd-root:fullscreen { background:#fff; border-radius:0; }
+        .bd-root.bd-fake-full { position:fixed !important; inset:0; z-index:60; height:100dvh !important; border-radius:0; display:flex; flex-direction:column; }
+        body.h-screen { height:100vh; height:100dvh; }
+        .bd-tools { -webkit-overflow-scrolling:touch; }
+        @media (max-width: 640px) {
+            input, select, textarea { font-size:16px; }
+            .bd-tools { flex-wrap:nowrap !important; overflow-x:auto; }
+            .bd-tools > div { flex-wrap:nowrap !important; flex-shrink:0; }
+            .bd-btn { padding:10px; }
+            .bd-color { width:28px; height:28px; }
+            .bd-text-btn { padding:7px 12px; }
+            .bd-top { padding:6px 10px !important; }
+        }
+        @media (pointer: coarse) { .bd-btn { padding:9px; } }
     </style>
 </head>
 <body class="text-gray-800 h-screen flex flex-col overflow-hidden relative">
@@ -75,15 +88,22 @@
     <main class="flex-grow overflow-y-auto relative pb-10">
         
         <div id="student-view" class="max-w-5xl mx-auto p-4 sm:p-6 lg:p-8 fade-in block">
-            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6 flex flex-col sm:flex-row justify-between items-center gap-4">
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sm:p-6 mb-6 flex flex-col sm:flex-row justify-between sm:items-center gap-4">
                 <div>
-                    <h2 class="text-2xl font-bold text-gray-900">Student Dashboard</h2>
-                    <p class="text-sm text-gray-500 mt-1">Select your class to view assigned materials.</p>
+                    <h2 id="student-dash-title" class="text-2xl font-bold text-gray-900">Student Dashboard</h2>
+                    <p id="student-dash-sub" class="text-sm text-gray-500 mt-1">Select your class to view assigned materials.</p>
                 </div>
-                <div class="w-full sm:w-64">
+                <div id="student-class-wrapper" class="w-full sm:w-64">
                     <select id="student-class-select" onchange="window.handleClassSelection()" class="dynamic-class-select w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-gray-50 text-gray-900 font-medium">
                         <option value="" disabled selected>-- Select Your Class --</option>
                     </select>
+                    <button type="button" onclick="window.showPrivateLogin()" class="mt-2 text-sm text-indigo-600 hover:underline">Private student? Log in here</button>
+                </div>
+                <div id="student-private-bar" class="hidden w-full sm:w-auto">
+                    <div class="flex items-center justify-between gap-3">
+                        <span class="text-sm text-gray-700">Signed in as <b id="student-private-name-label"></b></span>
+                        <button type="button" onclick="window.privateLogout()" class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50">Log out</button>
+                    </div>
                 </div>
             </div>
 
@@ -101,7 +121,7 @@
                 <div id="student-board-container" class="hidden fade-in"><div id="student-board-mount"></div></div>
 
                 <!-- Active Exercise Modal/View -->
-                <div id="active-exercise-view" class="hidden bg-white p-6 rounded-xl shadow-md border border-gray-200 mt-4">
+                <div id="active-exercise-view" class="hidden bg-white p-4 sm:p-6 rounded-xl shadow-md border border-gray-200 mt-4">
                     <button onclick="window.closeExercise()" class="text-sm text-indigo-600 font-medium mb-4 flex items-center gap-1 hover:text-indigo-800">
                         &larr; Back to List
                     </button>
@@ -109,12 +129,13 @@
                     <div id="active-exercise-desc" class="text-gray-700 mb-6 prose max-w-none"></div>
                     <div id="questions-container" class="space-y-6 mb-8"></div>
 
-                    <div class="border-t border-gray-200 pt-6 mt-6 bg-gray-50 -mx-6 -mb-6 p-6 rounded-b-xl">
+                    <div class="border-t border-gray-200 pt-6 mt-6 bg-gray-50 -mx-4 -mb-4 p-4 sm:-mx-6 sm:-mb-6 sm:p-6 rounded-b-xl">
                         <h4 class="text-lg font-semibold text-gray-800 mb-4">Submission Details</h4>
                         <div class="max-w-md mb-6">
                             <label id="student-name-label" class="block text-sm font-medium text-gray-700 mb-1">Your Full Name</label>
                             <select id="student-roster-select" onchange="window.refreshAttemptInfo()" class="hidden w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 bg-white"></select>
                             <p id="roster-help" class="hidden text-xs text-gray-500 mt-1">Can't see your name? Ask your teacher.</p>
+                            <p id="student-private-as" class="hidden px-4 py-2 bg-white border border-gray-300 rounded-lg font-medium text-gray-800"></p>
                             <input type="text" id="student-name-input" onchange="window.refreshAttemptInfo()" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-indigo-500 bg-white" placeholder="e.g. Jane Doe">
                         </div>
                         <p id="attempt-info" class="hidden text-sm mb-3 font-medium"></p>
@@ -155,6 +176,18 @@
                         <button onclick="window.adminAddClass()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded-lg">Add</button>
                     </div>
                     <ul id="admin-classes-list" class="divide-y divide-gray-200 bg-gray-50 border rounded-lg overflow-hidden"></ul>
+                </div>
+
+                <div class="bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-200">
+                    <h3 class="text-lg font-bold mb-1">Private students</h3>
+                    <p class="text-sm text-gray-500 mb-4">A private student has their own space instead of a class: lessons, exercises, homework and a one-to-one live board that only they can open with their name and password. Results are saved under their name. Select "<b>name (private)</b>" in any class list to publish something for them.</p>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-2">
+                        <input type="text" id="priv-name" class="px-4 py-2 border border-gray-300 rounded-lg" placeholder="Student full name" autocomplete="off">
+                        <input type="text" id="priv-pass" class="px-4 py-2 border border-gray-300 rounded-lg" placeholder="Password (min. 4 characters)" autocomplete="off">
+                        <button onclick="window.adminAddPrivate()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded-lg">Add private student</button>
+                    </div>
+                    <p id="priv-msg" class="text-sm font-medium mb-3 hidden"></p>
+                    <ul id="admin-private-list" class="divide-y divide-gray-200 bg-gray-50 border rounded-lg overflow-hidden"></ul>
                 </div>
 
                 <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
@@ -420,6 +453,21 @@
         © Classroom Portal • All rights reserved • <span onclick="window.showAdminLogin()" class="cursor-pointer" aria-label="Admin Login">.</span>
     </footer>
 
+    <!-- Private student login -->
+    <div id="private-login-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 fade-in">
+        <form onsubmit="event.preventDefault(); window.privateLogin();" class="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6">
+            <h3 class="text-xl font-bold text-gray-900 mb-1">Private student login</h3>
+            <p class="text-sm text-gray-500 mb-4">Use the name and password your teacher gave you.</p>
+            <input type="text" id="private-login-name" autocomplete="username" class="w-full px-4 py-2 border border-gray-300 rounded-lg mb-3" placeholder="Your full name">
+            <input type="password" id="private-login-pass" autocomplete="current-password" class="w-full px-4 py-2 border border-gray-300 rounded-lg mb-3" placeholder="Password">
+            <p id="private-login-error" class="text-red-500 text-sm hidden mb-3"></p>
+            <div class="flex justify-end gap-3">
+                <button type="button" onclick="window.closePrivateLogin()" class="px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-lg">Cancel</button>
+                <button type="submit" id="private-login-btn" class="px-4 py-2 text-sm text-white bg-indigo-600 rounded-lg">Log in</button>
+            </div>
+        </form>
+    </div>
+
     <!-- Admin Auth Modal -->
     <div id="admin-auth-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 fade-in">
         <div class="bg-white rounded-xl shadow-2xl max-w-sm w-full p-6">
@@ -435,7 +483,7 @@
 
     <!-- Lesson Reading Modal -->
     <div id="lesson-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 fade-in">
-        <div class="bg-white rounded-xl shadow-2xl max-w-3xl w-full p-6 sm:p-8 max-h-[90vh] flex flex-col relative">
+        <div class="bg-white rounded-xl shadow-2xl max-w-3xl w-full p-4 pt-10 sm:p-8 max-h-[90vh] flex flex-col relative">
             <button onclick="document.getElementById('lesson-modal').classList.add('hidden')" class="absolute top-4 right-4 text-gray-400 hover:text-gray-700 text-2xl leading-none">&times;</button>
             <h2 id="lesson-read-title" class="text-2xl font-bold text-gray-900 mb-4"></h2>
             <div class="overflow-y-auto">
@@ -476,6 +524,7 @@
         let currentStudentClass = '';
         let activeExerciseData = null;
         let studentAnswers = {};
+        let privateSession = null;   // { cls, name } when a private student is logged in
         let attachSel = { lesson: [], homework: [] };   // exercise ids ticked in the lesson / homework forms
 
         
@@ -547,11 +596,13 @@
         
         async function fetchClasses() {
             if (!isDbConnected) return;
-            const { data, error } = await supabaseClient.from('portal_classes').select('*').order('created_at', { ascending: true });
+            let { data, error } = await supabaseClient.from('portal_classes').select('id, name, created_at, is_private, student_name').order('created_at', { ascending: true });
+            if (error) ({ data, error } = await supabaseClient.from('portal_classes').select('id, name, created_at').order('created_at', { ascending: true }));
             if (!error && data) {
                 globalClasses = data;
                 updateClassSelects();
                 renderAdminClasses();
+                if (window.renderAdminPrivate) renderAdminPrivate();
             }
         }
 
@@ -715,7 +766,9 @@ window.adminDeleteLesson = async function(id) {
                 const currentVal = select.value;
                 select.innerHTML = '<option value="" disabled selected>-- Select Class --</option>';
                 globalClasses.forEach(c => {
-                    select.innerHTML += `<option value="${c.name}">${c.name}</option>`;
+                    if (c.is_private && select.id === 'student-class-select') return;   // private students are never listed publicly
+                    const label = c.is_private ? '\uD83D\uDD12 ' + (c.student_name || c.name) + ' (private)' : c.name;
+                    select.innerHTML += `<option value="${escapeHtml(c.name)}">${escapeHtml(label)}</option>`;
                 });
                 if (currentVal) select.value = currentVal;
             });
@@ -723,7 +776,7 @@ window.adminDeleteLesson = async function(id) {
         }
 
         window.handleClassSelection = function() {
-            currentStudentClass = document.getElementById('student-class-select').value;
+            currentStudentClass = privateSession ? privateSession.cls : document.getElementById('student-class-select').value;
             if (currentStudentClass) {
                 document.getElementById('student-no-class-msg').classList.add('hidden');
                 document.getElementById('student-content-area').classList.remove('hidden');
@@ -989,7 +1042,7 @@ function mcqOptionsHtml(key, q, shuffle) {
 
             document.getElementById(`qbody-${qi}`).innerHTML = `
                 <p class="text-xs text-gray-500 mb-2">Click an item on the left, then click its match on the right. Click a linked item to unlink it.</p>
-                <div class="grid grid-cols-2 gap-4">
+                <div class="grid grid-cols-2 gap-2 sm:gap-4">
                     <div class="space-y-2">${leftHtml}</div>
                     <div class="space-y-2">${rightHtml}</div>
                 </div>`;
@@ -1244,9 +1297,9 @@ function mcqOptionsHtml(key, q, shuffle) {
 
         function renderAdminClasses() {
             const list = document.getElementById('admin-classes-list');
-            list.innerHTML = globalClasses.map(c => `
+            list.innerHTML = globalClasses.filter(c => !c.is_private).map(c => `
                 <li class="flex justify-between items-center px-4 py-3 bg-white">
-                    <span class="font-medium">${c.name}</span>
+                    <span class="font-medium">${escapeHtml(c.name)}</span>
                     <button onclick="window.adminDeleteClass('${c.id}')" class="text-red-500 text-sm hover:underline">Delete</button>
                 </li>
             `).join('');
@@ -1779,6 +1832,15 @@ window.adminAddQuestionBlock = function(type) {
             const sel = document.getElementById('student-roster-select');
             const input = document.getElementById('student-name-input');
             const label = document.getElementById('student-name-label');
+            const lockEl = document.getElementById('student-private-as');
+            lockEl.classList.add('hidden');
+            if (privateSession) {
+                sel.classList.add('hidden'); input.classList.add('hidden');
+                document.getElementById('roster-help').classList.add('hidden');
+                label.textContent = 'Submitting as';
+                lockEl.textContent = privateSession.name; lockEl.classList.remove('hidden');
+                return;
+            }
             sel.classList.add('hidden'); input.classList.remove('hidden');
             document.getElementById('roster-help').classList.add('hidden');
             label.textContent = 'Your Full Name';
@@ -1794,6 +1856,7 @@ window.adminAddQuestionBlock = function(type) {
         }
 
         function getSubmittingStudent() {
+            if (privateSession) return { id: privateSession.studentId || null, name: privateSession.name };
             const sel = document.getElementById('student-roster-select');
             if (!sel.classList.contains('hidden')) {
                 return sel.value ? { id: sel.value, name: sel.selectedOptions[0].textContent } : null;
@@ -1969,7 +2032,7 @@ window.adminAddQuestionBlock = function(type) {
             if (!sel) return;
             const cur = sel.value;
             sel.innerHTML = '<option value="">All classes</option>' +
-                globalClasses.map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`).join('');
+                globalClasses.map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.is_private ? '\uD83D\uDD12 ' + (c.student_name || c.name) + ' (private)' : c.name)}</option>`).join('');
             sel.value = cur;
         }
 
@@ -2944,6 +3007,7 @@ const BD_ICONS = {
     redo: '<path d="M21 7v6h-6"/><path d="M21 13a9 9 0 1 1-3-7.7L21 8"/>',
     trash: '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/>',
     download: '<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>',
+    zoom: '<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3M11 8v6M8 11h6"/>',
     full: '<path d="M8 3H3v5"/><path d="M16 3h5v5"/><path d="M8 21H3v-5"/><path d="M16 21h5v-5"/>',
     users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7"/><path d="M18 14.3c2.3.7 3.5 2.6 3.5 5.7"/>'
 };
@@ -3056,6 +3120,7 @@ class Board {
                     ${T ? `<label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none"><input type="checkbox" class="bd-allow w-4 h-4"> Let students draw</label>
                            <button type="button" class="bd-text-btn" data-act="clrstu">Clear student drawings</button>` : `<button type="button" class="bd-text-btn bd-hand" data-act="hand">&#9995; Raise hand</button>`}
                     ${act('download', 'download', 'Save this page as an image')}
+                    ${act('zoom', 'zoom', 'Zoom the board (scroll sideways to move around)', 'md:hidden')}
                     ${act('full', 'full', 'Fullscreen')}
                 </div>
             </div>
@@ -3149,14 +3214,14 @@ class Board {
         if (window.ResizeObserver) { this.ro = new ResizeObserver(() => this.fit()); this.ro.observe(this.stage); }
     }
 
-    visible() { return this.root.offsetParent !== null || document.fullscreenElement === this.root; }
+    visible() { return this.root.offsetParent !== null || this.isFull(); }
     canDraw() { return this.isT || this.allow; }
     by() { return this.isT ? 't' : this.id; }
 
     // ---------- layout ----------
     fit() {
         if (!this.visible()) return;
-        const fs = document.fullscreenElement === this.root;
+        const fs = this.isFull();
         const padX = 24;
         let availW = this.stage.clientWidth - padX;
         let availH;
@@ -3168,6 +3233,10 @@ class Board {
         if (availW < 200) return;
         let w = Math.min(availW, availH * 16 / 9);
         w = Math.max(280, Math.floor(w));
+        const zoomOn = this.zoomed && !fs;
+        if (zoomOn) w = Math.max(w, 1000);
+        this.stage.style.overflowX = zoomOn ? 'auto' : '';
+        this.stage.style.justifyContent = zoomOn ? 'flex-start' : '';
         const h = Math.round(w * 9 / 16);
         this.frame.style.width = w + 'px'; this.frame.style.height = h + 'px';
         const dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -3175,8 +3244,8 @@ class Board {
         if (this.canvas.width !== bw || this.canvas.height !== bh) { this.canvas.width = bw; this.canvas.height = bh; }
         this.sc = bw / BD.W;
         this.cssScale = w / BD.W;
-        this.stage.style.height = fs ? '' : (h + 24) + 'px';
-        if (fs) { this.root.style.height = '100vh'; this.stage.style.flex = '1 1 auto'; this.stage.style.minHeight = '0'; }
+        this.stage.style.height = fs ? '' : (h + (zoomOn ? 40 : 24)) + 'px';
+        if (fs && !this.root.classList.contains('bd-fake-full')) { this.root.style.height = '100vh'; this.stage.style.flex = '1 1 auto'; this.stage.style.minHeight = '0'; }
         else { this.root.style.height = ''; this.stage.style.flex = ''; this.stage.style.minHeight = ''; }
         this.schedule();
     }
@@ -3261,6 +3330,7 @@ class Board {
             case 'clrstu': if (confirm("Remove everything the students drew?")) { this.emit({ t: 'clrs' }); this.save(); } break;
             case 'download': this.download(); break;
             case 'full': this.toggleFull(); break;
+            case 'zoom': this.zoomed = !this.zoomed; this.mount.querySelector('[data-act="zoom"]').classList.toggle('on', this.zoomed); this.fit(); break;
             case 'image': this.mount.querySelector('.bd-file').click(); break;
             case 'prev': this.gotoPage(this.cur - 1); break;
             case 'next': this.gotoPage(this.cur + 1); break;
@@ -3269,9 +3339,13 @@ class Board {
             case 'hand': this.raiseHand(); break;
         }
     }
+    isFull() { return document.fullscreenElement === this.root || this.root.classList.contains('bd-fake-full'); }
     toggleFull() {
-        if (document.fullscreenElement === this.root) document.exitFullscreen();
-        else if (this.root.requestFullscreen) this.root.requestFullscreen().catch(() => { });
+        if (this.root.classList.contains('bd-fake-full')) { this.root.classList.remove('bd-fake-full'); document.body.style.overflow = ''; this.fit(); return; }
+        if (document.fullscreenElement === this.root) { document.exitFullscreen(); return; }
+        const enterFake = () => { this.root.classList.add('bd-fake-full'); document.body.style.overflow = 'hidden'; this.fit(); if (window.innerHeight > window.innerWidth) this.showToast('Rotate your phone sideways for a bigger board'); };
+        if (this.root.requestFullscreen) this.root.requestFullscreen().catch(enterFake);
+        else enterFake();   // iPhone Safari cannot fullscreen a div: use a full-window view instead
     }
     gotoPage(i) {
         if (i < 0 || i >= this.pages.length) return;
@@ -3961,6 +4035,141 @@ window.studentBoardConnect = function (cls) {
 };
 window.studentBoardDisconnect = function () { if (studentBoard) { studentBoard.leave(); setLiveDot(false); } };
 window.studentBoardShown = function () { if (studentBoard) setTimeout(() => { studentBoard.fit(); studentBoard.schedule(); }, 0); };
+
+
+// ==========================================================================
+// PRIVATE STUDENTS: a private student = a hidden "class" (name + password hash) with one roster entry
+// ==========================================================================
+async function sha256Hex(text) {
+    if (!(window.crypto && crypto.subtle)) throw new Error('This browser cannot check passwords securely (open the site over https).');
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+const privKey = (name, pass) => 'portal-private|' + String(name).trim().toLowerCase() + '|' + pass;
+const privClassName = name => name.trim() + ' (private)';
+
+function privMsg(text, good) {
+    const el = document.getElementById('priv-msg');
+    el.textContent = text; el.className = 'text-sm font-medium mb-3 ' + (good ? 'text-green-600' : 'text-red-600');
+}
+
+window.adminAddPrivate = async function () {
+    if (!isDbConnected) return alert('Database not connected.');
+    const name = document.getElementById('priv-name').value.trim().replace(/\s+/g, ' ');
+    const pass = document.getElementById('priv-pass').value;
+    if (!name) return privMsg('Enter the student name.', false);
+    if (pass.length < 4) return privMsg('The password needs at least 4 characters.', false);
+    if (globalClasses.some(c => c.is_private && String(c.student_name || '').toLowerCase() === name.toLowerCase())) return privMsg('A private student with this name already exists.', false);
+    let hash;
+    try { hash = await sha256Hex(privKey(name, pass)); } catch (e) { return privMsg(e.message, false); }
+    const cls = privClassName(name);
+    const { error } = await supabaseClient.from('portal_classes').insert([{ name: cls, is_private: true, student_name: name, pass_hash: hash }]);
+    if (error) { console.error(error); return privMsg('Could not save. Run portal-setup-v3.sql in the Supabase SQL editor first.', false); }
+    const r = await supabaseClient.from('portal_students').insert([{ name, class_name: cls }]);
+    if (r.error) console.error(r.error);
+    document.getElementById('priv-name').value = ''; document.getElementById('priv-pass').value = '';
+    privMsg(`Added ${name}. They log in with their name and this password.`, true);
+    fetchClasses();
+};
+
+window.adminResetPrivate = async function (id) {
+    const c = globalClasses.find(x => x.id == id); if (!c) return;
+    const pass = prompt(`New password for ${c.student_name || c.name} (min. 4 characters):`);
+    if (pass === null) return;
+    if (pass.length < 4) return alert('The password needs at least 4 characters.');
+    const hash = await sha256Hex(privKey(c.student_name || c.name, pass));
+    const { data, error } = await supabaseClient.from('portal_classes').update({ pass_hash: hash }).eq('id', id).select('id');
+    if (error || !data || !data.length) { console.error(error); return alert('Could not change the password. Run portal-setup-v3.sql in Supabase (it allows updates on portal_classes).'); }
+    alert('Password changed.');
+};
+
+window.adminDeletePrivate = async function (id) {
+    const c = globalClasses.find(x => x.id == id); if (!c) return;
+    if (!confirm(`Delete the private student "${c.student_name || c.name}"? They can no longer log in. Their saved results are kept.`)) return;
+    await supabaseClient.from('portal_students').delete().eq('class_name', c.name);
+    await supabaseClient.from('portal_classes').delete().eq('id', id);
+    fetchClasses();
+};
+
+function renderAdminPrivate() {
+    const list = document.getElementById('admin-private-list'); if (!list) return;
+    const rows = globalClasses.filter(c => c.is_private);
+    if (!rows.length) { list.innerHTML = '<li class="px-4 py-3 bg-white text-sm text-gray-500">No private students yet.</li>'; return; }
+    list.innerHTML = rows.map(c => `
+        <li class="flex flex-wrap justify-between items-center px-4 py-3 gap-3 bg-white">
+            <span class="font-medium">&#128274; ${escapeHtml(c.student_name || c.name)}</span>
+            <span class="flex gap-4">
+                <button onclick="window.adminResetPrivate('${c.id}')" class="text-indigo-600 text-sm hover:underline">Reset password</button>
+                <button onclick="window.adminDeletePrivate('${c.id}')" class="text-red-500 text-sm hover:underline">Delete</button>
+            </span>
+        </li>`).join('');
+}
+
+// ---- student side ----
+window.showPrivateLogin = function () {
+    document.getElementById('private-login-name').value = '';
+    document.getElementById('private-login-pass').value = '';
+    document.getElementById('private-login-error').classList.add('hidden');
+    document.getElementById('private-login-modal').classList.remove('hidden');
+    setTimeout(() => document.getElementById('private-login-name').focus(), 50);
+};
+window.closePrivateLogin = function () { document.getElementById('private-login-modal').classList.add('hidden'); };
+
+function applyPrivateSession() {
+    const on = !!privateSession;
+    document.getElementById('student-class-wrapper').classList.toggle('hidden', on);
+    document.getElementById('student-private-bar').classList.toggle('hidden', !on);
+    document.getElementById('student-dash-title').textContent = on ? 'Welcome, ' + privateSession.name : 'Student Dashboard';
+    document.getElementById('student-dash-sub').textContent = on ? 'Your private lessons, exercises and homework.' : 'Select your class to view assigned materials.';
+    if (on) document.getElementById('student-private-name-label').textContent = privateSession.name;
+    window.closeExercise && document.getElementById('active-exercise-view').classList.add('hidden');
+    window.switchStudentTab('lessons');
+    window.handleClassSelection();
+}
+
+window.privateLogin = async function () {
+    const errEl = document.getElementById('private-login-error'), btn = document.getElementById('private-login-btn');
+    const fail = t => { errEl.textContent = t; errEl.classList.remove('hidden'); btn.disabled = false; };
+    const name = document.getElementById('private-login-name').value.trim().replace(/\s+/g, ' ');
+    const pass = document.getElementById('private-login-pass').value;
+    if (!name || !pass) return fail('Enter your name and password.');
+    if (!isDbConnected) return fail('Database not connected.');
+    btn.disabled = true; errEl.classList.add('hidden');
+    try {
+        const { data, error } = await supabaseClient.from('portal_classes').select('id, name, student_name, pass_hash').eq('is_private', true).ilike('student_name', escapeLike(name));
+        if (error) { console.error(error); return fail('Private login is not set up yet. Ask your teacher.'); }
+        const h = await sha256Hex(privKey(name, pass));
+        const row = (data || []).find(r => r.pass_hash === h);
+        if (!row) return fail('Wrong name or password.');
+        delete rosterCache[row.name];
+        const roster = await fetchRoster(row.name);
+        if (!roster.length) return fail('This account is not active. Ask your teacher.');
+        privateSession = { cls: row.name, name: row.student_name, studentId: roster[0].id };
+        try { localStorage.setItem('portal_private_session', JSON.stringify(privateSession)); } catch (e) { }
+        window.closePrivateLogin(); btn.disabled = false;
+        applyPrivateSession();
+    } catch (e) { console.error(e); fail(e.message || 'Could not log in.'); }
+};
+
+window.privateLogout = function () {
+    privateSession = null;
+    try { localStorage.removeItem('portal_private_session'); } catch (e) { }
+    if (window.studentBoardDisconnect) window.studentBoardDisconnect();
+    document.getElementById('student-class-select').value = '';
+    applyPrivateSession();
+};
+
+async function restorePrivateSession() {
+    let s = null;
+    try { s = JSON.parse(localStorage.getItem('portal_private_session') || 'null'); } catch (e) { }
+    if (!s || !s.cls) return;
+    delete rosterCache[s.cls];
+    const roster = await fetchRoster(s.cls);
+    if (!roster.length) { try { localStorage.removeItem('portal_private_session'); } catch (e) { } return; }
+    privateSession = { cls: s.cls, name: s.name, studentId: roster[0].id };
+    applyPrivateSession();
+}
+if (isDbConnected) restorePrivateSession();
 
     </script>
 </body>
