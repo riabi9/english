@@ -3110,12 +3110,14 @@ class BoardTransport {
         this.kind = 'supabase';
         const ch = supabaseClient.channel('board:' + this.key, { config: { broadcast: { self: false, ack: false }, presence: { key: this.id } } });
         this.ch = ch;
-        ch.on('broadcast', { event: 'op' }, ({ payload }) => this.h.onop(payload));
+        ch.on('broadcast', { event: 'op' }, ({ payload }) => { if (!this.dead) this.h.onop(payload); });
         ch.on('presence', { event: 'sync' }, () => {
+            if (this.dead) return;
             const st = ch.presenceState();
             this.h.onpresence(Object.values(st).flat().map(m => ({ id: m.id, role: m.role })));
         });
         ch.subscribe(async status => {
+            if (this.dead) return;
             if (status === 'SUBSCRIBED') {
                 try { await ch.track({ id: this.id, role: this.role }); } catch (e) { }
                 this.h.onstatus('connected');
@@ -3146,6 +3148,7 @@ class BoardTransport {
         else this.bc.postMessage(payload);
     }
     close() {
+        this.dead = true;
         if (this.kind === 'supabase') { try { supabaseClient.removeChannel(this.ch); } catch (e) { } }
         else { if (this.unload) { this.unload(); window.removeEventListener('pagehide', this.unload); } this.bc.close(); }
     }
