@@ -3151,6 +3151,14 @@ class BoardTransport {
     }
 }
 
+// channel names must be plain: slug + hash of the exact class name, so any class name works
+function boardKey(cls) {
+    const name = String(cls).trim().toLowerCase();
+    let h = 2166136261;
+    for (let i = 0; i < name.length; i++) { h ^= name.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+    return 'class-' + (name.replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24) || 'x') + '-' + h.toString(36);
+}
+
 // ----- the board -----
 class Board {
     constructor(mount, mode, opts = {}) {
@@ -3544,7 +3552,7 @@ class Board {
         this.hist = []; this.redoS = [];
         this.status = 'connecting'; this.online = [];
         this.refreshUi(); this.fit(); this.schedule();
-        const key = 'class:' + String(cls).trim().toLowerCase();
+        const key = boardKey(cls);
         this.inbox = new BoardTransport(key + ':inbox', this.id, this.isT ? 'teacher' : 'student', { onop: op => this.onInbox(op), onpresence: () => { }, onstatus: () => { } });
         this.tr = new BoardTransport(key, this.id, this.isT ? 'teacher' : 'student', {
             onop: op => this.onRemote(op),
@@ -4809,12 +4817,19 @@ function lxText(q, qi) {
     } catch (e) { }
     return '';
 }
+function lxRaw(q, qi) {
+    const t = q.type || 'mcq', a = studentAnswers[qi];
+    if (t === 'mcq' || t === 'tf') return a === undefined ? null : a;
+    if (t === 'multi') return Array.isArray(a) ? a.slice() : [];
+    if (t === 'passage') return (q.questions || []).map((_, si) => { const v = studentAnswers[`${qi}-${si}`]; return v === undefined ? null : v; });
+    return null;
+}
 function lxSnapshot() {
     const ex = activeExerciseData; if (!ex) return null;
     const st = getSubmittingStudent();
     const qs = ex.questions.map((q, qi) => {
         const done = lxAnswered(q, qi), sc = lxScore(q, qi);
-        return { a: lxText(q, qi), d: done ? 1 : 0, s: sc.score, t: sc.total };
+        return { a: lxText(q, qi), d: done ? 1 : 0, s: sc.score, t: sc.total, r: lxRaw(q, qi) };
     });
     return { t: 'ex_prog', sid: liveExS.sid, nm: st ? st.name : '', sub: exSubmitted ? 1 : 0, qs };
 }
@@ -4852,7 +4867,7 @@ function startStudentLive(op) {
     window.switchStudentTab('board');
     view.scrollIntoView({ behavior: 'smooth', block: 'start' });
     clearInterval(liveExS.timer);
-    liveExS.timer = setInterval(sendLiveProgress, 1200);
+    liveExS.timer = setInterval(sendLiveProgress, 600);
     setTimeout(sendLiveProgress, 400);
 }
 
@@ -4924,6 +4939,27 @@ window.liveExTeacherOp = function (op) {
 };
 window.liveExToggle = function (id) { liveExT.open[id] = !liveExT.open[id]; renderLiveEx(); };
 
+function lxOptionList(opts, chosen, correct) {
+    return '<div class="space-y-1 mt-1">' + opts.map((o, oi) => {
+        const ch = chosen.includes(oi), co = correct.includes(oi);
+        const cls = ch ? (co ? 'bg-green-100 border-green-500 text-green-900 font-semibold' : 'bg-red-100 border-red-500 text-red-900 font-semibold') : (co ? 'border-green-300 text-green-700' : 'border-gray-200 text-gray-500');
+        return `<div class="flex items-center gap-2 text-xs border rounded px-2 py-1 ${cls}"><span>${ch ? '&#9679;' : '&#9675;'}</span><span class="flex-1 break-words">${escapeHtml(o)}</span>${ch ? `<span>${co ? 'chosen' : 'chosen'}</span>` : ''}${co ? '<span>&#10004; correct</span>' : ''}</div>`;
+    }).join('') + '</div>';
+}
+function lxDetailQ(q, qq, i) {
+    const ty = qq.type || 'mcq';
+    const mark = !q.d ? '<span class="text-gray-400">&#8226;</span>' : (q.s === q.t ? '<span class="text-green-600 font-bold">&#10004;</span>' : (q.s > 0 ? '<span class="text-amber-600 font-bold">&#189;</span>' : '<span class="text-red-600 font-bold">&#10008;</span>'));
+    const title = qq.text || (qq.passage ? qq.passage.slice(0, 60) + '...' : '');
+    let body;
+    if (ty === 'mcq') body = lxOptionList(qq.options, q.r == null ? [] : [q.r], [parseInt(qq.correctIndex)]);
+    else if (ty === 'tf') body = lxOptionList(['True', 'False'], q.r == null ? [] : [q.r], [qq.correct ? 0 : 1]);
+    else if (ty === 'multi') body = lxOptionList(qq.options, q.r || [], qq.correct || []);
+    else if (ty === 'passage') body = (qq.questions || []).map((sq, si) => `<div class="mt-1"><div class="text-xs text-gray-700">${i + 1}.${si + 1} ${escapeHtml(sq.text)}</div>${lxOptionList(sq.options, (q.r && q.r[si] != null) ? [q.r[si]] : [], [parseInt(sq.correctIndex)])}</div>`).join('');
+    else body = `<div class="text-xs text-gray-800 break-words mt-1 ${q.a ? '' : 'text-gray-400'}">${q.a ? escapeHtml(q.a) : 'no answer yet'}</div>`;
+    return `<div class="border-l-2 ${!q.d ? 'border-gray-200' : q.s === q.t ? 'border-green-400' : 'border-red-400'} pl-2">
+        <div class="text-xs text-gray-600">${mark} <b>Q${i + 1}</b> &middot; ${escapeHtml(Q_TYPE_LABELS[ty] || 'Multiple choice')} &middot; ${escapeHtml(title)}</div>${body}</div>`;
+}
+
 function renderLiveEx() {
     const setup = document.getElementById('live-ex-setup'), run = document.getElementById('live-ex-running');
     if (!setup) return;
@@ -4940,15 +4976,8 @@ function renderLiveEx() {
         const answered = s.qs.filter(q => q.d).length;
         const sc = s.qs.reduce((x, q) => x + q.s, 0), tot = s.qs.reduce((x, q) => x + q.t, 0);
         const pct = Math.round(answered / n * 100);
-        const open = !!liveExT.open[id];
-        const detail = open ? `<div class="px-3 pb-3 space-y-1.5">` + s.qs.map((q, i) => {
-            const qq = ex.questions[i], ty = qq.type || 'mcq';
-            const title = qq.text || (qq.passage ? qq.passage.slice(0, 50) + '...' : '');
-            const mark = !q.d ? '<span class="text-gray-400">&#8226;</span>' : (q.s === q.t ? '<span class="text-green-600 font-bold">&#10004;</span>' : (q.s > 0 ? '<span class="text-amber-600 font-bold">&#189;</span>' : '<span class="text-red-600 font-bold">&#10008;</span>'));
-            return `<div class="text-xs border-l-2 ${!q.d ? 'border-gray-200' : q.s === q.t ? 'border-green-400' : 'border-red-400'} pl-2">
-                <div class="text-gray-500">${mark} Q${i + 1} &middot; ${escapeHtml(labels[ty] || 'Multiple choice')} &middot; ${escapeHtml(title)}</div>
-                <div class="text-gray-800 break-words">${q.a ? escapeHtml(q.a) : '<span class="text-gray-400">no answer yet</span>'}</div></div>`;
-        }).join('') + `</div>` : '';
+        const open = liveExT.open[id] !== undefined ? liveExT.open[id] : rows.length <= 3;
+        const detail = open ? `<div class="px-3 pb-3 space-y-2">` + s.qs.map((q, i) => lxDetailQ(q, ex.questions[i], i)).join('') + `</div>` : '';
         return `<div class="border border-gray-200 rounded-lg bg-white">
             <button type="button" onclick="window.liveExToggle('${id}')" class="w-full text-left px-3 py-2">
                 <div class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-gray-900 truncate">${escapeHtml(s.nm)}</span>
