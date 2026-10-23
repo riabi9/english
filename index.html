@@ -110,7 +110,6 @@
             <div id="student-content-area" class="hidden">
                 <div class="flex space-x-8 mb-6 border-b border-gray-200 overflow-x-auto">
                     <button id="tab-student-lessons" onclick="window.switchStudentTab('lessons')" class="tab-active pb-3 text-sm font-medium whitespace-nowrap">Lessons</button>
-                    <button id="tab-student-exercises" onclick="window.switchStudentTab('exercises')" class="tab-inactive pb-3 text-sm font-medium whitespace-nowrap">Exercises</button>
                     <button id="tab-student-homework" onclick="window.switchStudentTab('homework')" class="tab-inactive pb-3 text-sm font-medium whitespace-nowrap">Homework <span id="hw-count-dot" class="hidden ml-1 text-xs font-bold bg-red-500 text-white rounded-full px-1.5 py-0.5"></span></button>
                     <button id="tab-student-board" onclick="window.switchStudentTab('board')" class="tab-inactive pb-3 text-sm font-medium whitespace-nowrap">Live Board <span id="board-live-dot" class="hidden bd-pulse inline-block w-2 h-2 rounded-full bg-red-500 align-middle ml-1"></span></button>
                 </div>
@@ -118,12 +117,17 @@
                 <div id="student-lessons-container" class="grid gap-6 md:grid-cols-2 block fade-in"></div>
                 <div id="student-exercises-container" class="hidden fade-in space-y-4"></div>
                 <div id="student-homework-container" class="hidden fade-in space-y-5"></div>
-                <div id="student-board-container" class="hidden fade-in"><div id="student-board-mount"></div></div>
+                <div id="student-board-container" class="hidden fade-in">
+                    <div id="student-live-ex-slot" class="hidden mb-4">
+                        <div class="flex items-center gap-2 px-4 py-2 mb-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800"><span class="bd-pulse inline-block w-2 h-2 rounded-full bg-red-500"></span><span id="live-ex-banner-text" class="font-medium"></span></div>
+                    </div>
+                    <div id="student-board-mount"></div>
+                </div>
 
                 <!-- Active Exercise Modal/View -->
                 <div id="active-exercise-view" class="hidden bg-white p-4 sm:p-6 rounded-xl shadow-md border border-gray-200 mt-4">
-                    <button onclick="window.closeExercise()" class="text-sm text-indigo-600 font-medium mb-4 flex items-center gap-1 hover:text-indigo-800">
-                        &larr; Back to List
+                    <button id="exercise-back-btn" onclick="window.closeExercise()" class="text-sm text-indigo-600 font-medium mb-4 flex items-center gap-1 hover:text-indigo-800">
+                        &larr; Back
                     </button>
                     <h3 id="active-exercise-title" class="text-2xl font-bold text-gray-900 mb-2"></h3>
                     <div id="active-exercise-desc" class="text-gray-700 mb-6 prose max-w-none"></div>
@@ -161,8 +165,7 @@
             <div class="flex space-x-6 mb-6 border-b border-gray-200 overflow-x-auto">
                 <button id="tab-admin-classes" onclick="window.switchAdminTab('classes')" class="tab-active pb-3 px-2 text-sm font-medium">Classes</button>
                 <button id="tab-admin-lessons" onclick="window.switchAdminTab('lessons')" class="tab-inactive pb-3 px-2 text-sm font-medium">Publish Lessons</button>
-                <button id="tab-admin-exercises" onclick="window.switchAdminTab('exercises')" class="tab-inactive pb-3 px-2 text-sm font-medium">Create Exercises</button>
-                <button id="tab-admin-homework" onclick="window.switchAdminTab('homework')" class="tab-inactive pb-3 px-2 text-sm font-medium whitespace-nowrap">Homework</button>
+                <button id="tab-admin-homework" onclick="window.switchAdminTab('homework')" class="tab-inactive pb-3 px-2 text-sm font-medium whitespace-nowrap">Homework &amp; Exercises</button>
                 <button id="tab-admin-board" onclick="window.switchAdminTab('board')" class="tab-inactive pb-3 px-2 text-sm font-medium whitespace-nowrap">Live Board</button>
                 <button id="tab-admin-results" onclick="window.switchAdminTab('results')" class="tab-inactive pb-3 px-2 text-sm font-medium">Results</button>
             </div>
@@ -252,8 +255,61 @@
                 </div>
             </div>
 
-            <!-- Admin: Exercises Tab -->
-            <div id="admin-exercises-container" class="hidden fade-in space-y-6">
+            <!-- Admin: Homework Tab -->
+            <div id="admin-homework-container" class="hidden fade-in space-y-6">
+                <div class="inline-flex rounded-lg overflow-hidden border border-gray-300 bg-white">
+                    <button id="hwsub-assign" onclick="window.setHomeworkSub('assign')" class="px-4 py-2 text-sm font-medium bg-indigo-600 text-white">Give homework</button>
+                    <button id="hwsub-exercises" onclick="window.setHomeworkSub('exercises')" class="px-4 py-2 text-sm font-medium bg-white text-gray-700 hover:bg-gray-50">Exercise builder</button>
+                </div>
+                <div id="hw-sub-assign" class="space-y-6">
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                    <h3 id="hw-form-title" class="text-lg font-bold mb-4">New Homework</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                        <input type="text" id="hw-title" class="px-4 py-2 border border-gray-300 rounded-lg" placeholder="Homework title">
+                        <select id="hw-class" onchange="window.onAttachClassChange('homework')" class="dynamic-class-select px-4 py-2 border border-gray-300 rounded-lg"><option value="" disabled selected>Select Class</option></select>
+                        <div><input type="date" id="hw-due" class="w-full px-4 py-2 border border-gray-300 rounded-lg" title="Due date (optional)"></div>
+                    </div>
+                    <label class="block text-xs font-medium text-gray-500 mb-1">Instructions (optional)</label>
+                    <div class="mb-5">
+                        <div class="bg-gray-50 border border-gray-300 border-b-0 rounded-t-lg p-2 flex gap-2 items-center">
+                            <button onclick="window.execCmd('bold')" class="toolbar-btn font-bold">B</button>
+                            <button onclick="window.execCmd('italic')" class="toolbar-btn italic">I</button>
+                            <button onclick="window.execCmd('underline')" class="toolbar-btn underline">U</button>
+                            <div class="h-4 w-px bg-gray-300 mx-1"></div>
+                            <label class="text-xs font-medium text-gray-600 flex items-center gap-1 cursor-pointer">Color: <input type="color" onchange="window.execCmd('foreColor', this.value)" class="w-6 h-6 border-0 p-0 cursor-pointer"></label>
+                        </div>
+                        <div id="hw-instructions" contenteditable="true" class="editor-content p-4 border border-gray-300 rounded-b-lg bg-white" data-placeholder="What should students do? e.g. Read lesson 3 and finish the exercises below."></div>
+                    </div>
+                    <div class="mb-5 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                        <h4 class="font-semibold text-gray-800 mb-1">Exercises</h4>
+                        <p class="text-xs text-gray-500 mb-3">Tick the exercises that belong to this homework.</p>
+                        <div id="hw-ex-attach" class="space-y-2 max-h-64 overflow-y-auto"><p class="text-sm text-gray-500">Select a class above to see its exercises.</p></div>
+                        <button type="button" onclick="window.newExerciseFor('homework')" class="add-q-btn mt-3">+ Create a new exercise for this class</button>
+                    </div>
+                    <div class="mb-5 p-4 bg-emerald-50 border border-emerald-200 rounded-lg">
+                        <h4 class="font-semibold text-emerald-900 mb-1">ChatGPT practice prompt</h4>
+                        <p class="text-xs text-emerald-800 mb-3">Students see a "Copy prompt" button and paste it into ChatGPT to practise. Start from a template, then replace the [brackets].</p>
+                        <select id="hw-prompt-template" onchange="window.insertPromptTemplate()" class="mb-2 px-3 py-2 border border-emerald-300 rounded-lg bg-white text-sm">
+                            <option value="">Insert a template...</option>
+                            <option value="conversation">Conversation practice</option>
+                            <option value="grammar">Grammar drills</option>
+                            <option value="vocabulary">Vocabulary quiz</option>
+                            <option value="writing">Writing feedback</option>
+                            <option value="roleplay">Role-play</option>
+                        </select>
+                        <textarea id="hw-prompt" rows="9" class="w-full px-3 py-2 border border-emerald-300 rounded-lg text-sm bg-white" placeholder="Write the prompt students will copy into ChatGPT..."></textarea>
+                    </div>
+                    <button id="hw-publish-btn" onclick="window.adminPublishHomework()" class="bg-indigo-600 text-white py-2 px-6 rounded-lg">Publish Homework</button>
+                    <button id="hw-cancel-btn" type="button" onclick="window.adminCancelHomeworkEdit()" class="hidden ml-2 py-2 px-4 rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-50">Cancel edit</button>
+                    <span id="hw-msg" class="ml-3 text-sm font-medium hidden"></span>
+                </div>
+                <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                    <h3 class="text-lg font-bold mb-4">Published Homework</h3>
+                    <ul id="admin-homework-list" class="divide-y divide-gray-200 bg-gray-50 border rounded-lg overflow-hidden"></ul>
+                </div>
+                </div>
+            <!-- Exercise builder (inside Homework & Exercises) -->
+            <div id="admin-exercises-container" class="hidden space-y-6">
                 <div id="ex-return-banner" class="hidden flex flex-wrap items-center justify-between gap-3 p-4 bg-indigo-50 border border-indigo-200 rounded-xl">
                     <p id="ex-return-text" class="text-sm text-indigo-900"></p>
                     <button id="ex-return-btn" onclick="window.exerciseGoBack()" class="px-4 py-2 text-sm font-medium bg-indigo-600 text-white rounded-lg"></button>
@@ -311,8 +367,15 @@
                                 <button type="button" onclick="window.adminAddQuestionBlock('match')" class="add-q-btn">+ Matching</button>
                                 <button type="button" onclick="window.adminAddQuestionBlock('link')" class="add-q-btn">+ Linking</button>
                                 <button type="button" onclick="window.adminAddQuestionBlock('tf')" class="add-q-btn">+ True / False</button>
+                                <button type="button" onclick="window.adminAddQuestionBlock('multi')" class="add-q-btn">+ Multiple answers</button>
+                                <button type="button" onclick="window.adminAddQuestionBlock('fill')" class="add-q-btn">+ Fill in the blanks</button>
+                                <button type="button" onclick="window.adminAddQuestionBlock('short')" class="add-q-btn">+ Short answer</button>
+                                <button type="button" onclick="window.adminAddQuestionBlock('build')" class="add-q-btn">+ Sentence building</button>
+                                <button type="button" onclick="window.adminAddQuestionBlock('sort')" class="add-q-btn">+ Sorting</button>
+                                <button type="button" onclick="window.adminAddQuestionBlock('mistake')" class="add-q-btn">+ Find the mistake</button>
+                                <button type="button" onclick="window.adminAddQuestionBlock('dictation')" class="add-q-btn">+ Dictation (listening)</button>
                             </div>
-                            <p class="text-xs text-gray-500 mt-2">Scoring: 1 point per multiple-choice or true/false question (and per question inside a passage), 1 point per correct pair in matching/linking, and 1 point for a fully correct reordering.</p>
+                            <p class="text-xs text-gray-500 mt-2">Scoring: 1 point per multiple-choice or true/false question (and per question inside a passage), 1 point per correct pair in matching/linking, and 1 point for a fully correct reordering. New types: 1 point per blank (fill in the blanks), per sentence (sentence building, find the mistake, dictation), per item (sorting), and 1 point per question for short answer and multiple answers (all correct options must be selected).</p>
                         </div>
                         <div id="admin-questions-list" class="space-y-4"></div>
                     </div>
@@ -327,53 +390,6 @@
                 </div>
             </div>
 
-            <!-- Admin: Homework Tab -->
-            <div id="admin-homework-container" class="hidden fade-in space-y-6">
-                <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-                    <h3 id="hw-form-title" class="text-lg font-bold mb-4">New Homework</h3>
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                        <input type="text" id="hw-title" class="px-4 py-2 border border-gray-300 rounded-lg" placeholder="Homework title">
-                        <select id="hw-class" onchange="window.onAttachClassChange('homework')" class="dynamic-class-select px-4 py-2 border border-gray-300 rounded-lg"><option value="" disabled selected>Select Class</option></select>
-                        <div><input type="date" id="hw-due" class="w-full px-4 py-2 border border-gray-300 rounded-lg" title="Due date (optional)"></div>
-                    </div>
-                    <label class="block text-xs font-medium text-gray-500 mb-1">Instructions (optional)</label>
-                    <div class="mb-5">
-                        <div class="bg-gray-50 border border-gray-300 border-b-0 rounded-t-lg p-2 flex gap-2 items-center">
-                            <button onclick="window.execCmd('bold')" class="toolbar-btn font-bold">B</button>
-                            <button onclick="window.execCmd('italic')" class="toolbar-btn italic">I</button>
-                            <button onclick="window.execCmd('underline')" class="toolbar-btn underline">U</button>
-                            <div class="h-4 w-px bg-gray-300 mx-1"></div>
-                            <label class="text-xs font-medium text-gray-600 flex items-center gap-1 cursor-pointer">Color: <input type="color" onchange="window.execCmd('foreColor', this.value)" class="w-6 h-6 border-0 p-0 cursor-pointer"></label>
-                        </div>
-                        <div id="hw-instructions" contenteditable="true" class="editor-content p-4 border border-gray-300 rounded-b-lg bg-white" data-placeholder="What should students do? e.g. Read lesson 3 and finish the exercises below."></div>
-                    </div>
-                    <div class="mb-5 p-4 bg-gray-50 border border-gray-200 rounded-lg">
-                        <h4 class="font-semibold text-gray-800 mb-1">Exercises</h4>
-                        <p class="text-xs text-gray-500 mb-3">Tick the exercises that belong to this homework.</p>
-                        <div id="hw-ex-attach" class="space-y-2 max-h-64 overflow-y-auto"><p class="text-sm text-gray-500">Select a class above to see its exercises.</p></div>
-                        <button type="button" onclick="window.newExerciseFor('homework')" class="add-q-btn mt-3">+ Create a new exercise for this class</button>
-                    </div>
-                    <div class="mb-5 p-4 bg-emerald-50 border border-emerald-200 rounded-lg">
-                        <h4 class="font-semibold text-emerald-900 mb-1">ChatGPT practice prompt</h4>
-                        <p class="text-xs text-emerald-800 mb-3">Students see a "Copy prompt" button and paste it into ChatGPT to practise. Start from a template, then replace the [brackets].</p>
-                        <select id="hw-prompt-template" onchange="window.insertPromptTemplate()" class="mb-2 px-3 py-2 border border-emerald-300 rounded-lg bg-white text-sm">
-                            <option value="">Insert a template...</option>
-                            <option value="conversation">Conversation practice</option>
-                            <option value="grammar">Grammar drills</option>
-                            <option value="vocabulary">Vocabulary quiz</option>
-                            <option value="writing">Writing feedback</option>
-                            <option value="roleplay">Role-play</option>
-                        </select>
-                        <textarea id="hw-prompt" rows="9" class="w-full px-3 py-2 border border-emerald-300 rounded-lg text-sm bg-white" placeholder="Write the prompt students will copy into ChatGPT..."></textarea>
-                    </div>
-                    <button id="hw-publish-btn" onclick="window.adminPublishHomework()" class="bg-indigo-600 text-white py-2 px-6 rounded-lg">Publish Homework</button>
-                    <button id="hw-cancel-btn" type="button" onclick="window.adminCancelHomeworkEdit()" class="hidden ml-2 py-2 px-4 rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-50">Cancel edit</button>
-                    <span id="hw-msg" class="ml-3 text-sm font-medium hidden"></span>
-                </div>
-                <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-                    <h3 class="text-lg font-bold mb-4">Published Homework</h3>
-                    <ul id="admin-homework-list" class="divide-y divide-gray-200 bg-gray-50 border rounded-lg overflow-hidden"></ul>
-                </div>
             </div>
 
             <!-- Admin: Live Board Tab -->
@@ -384,7 +400,28 @@
                     <p class="text-xs text-gray-500 flex-1 min-w-[14rem]">You can prepare the board before class. Press <b>Go live</b> and students of that class see it in their <b>Live Board</b> tab, in real time.</p>
                 </div>
                 <p id="board-empty-msg" class="text-center text-gray-500 py-10 bg-white rounded-xl border border-dashed border-gray-300">Choose a class to open its board.</p>
-                <div id="teacher-board-mount" class="hidden"></div>
+                <div id="board-wrap" class="hidden">
+                    <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem] items-start">
+                        <div id="teacher-board-mount"></div>
+                        <div id="live-ex-panel" class="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+                            <h3 class="font-bold text-gray-900 mb-1">Live exercise</h3>
+                            <div id="live-ex-setup">
+                                <p class="text-xs text-gray-500 mb-3">Explain on the board, then send an exercise to every student. They answer on their own screen and you see the answers appear here.</p>
+                                <select id="live-ex-select" class="w-full px-3 py-2 border border-gray-300 rounded-lg mb-3 bg-white text-sm"><option value="">Choose a class first</option></select>
+                                <button onclick="window.liveExStart()" class="w-full px-4 py-2 text-sm font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white">Send to students</button>
+                            </div>
+                            <div id="live-ex-running" class="hidden">
+                                <p id="live-ex-title" class="font-semibold text-indigo-700"></p>
+                                <p id="live-ex-stats" class="text-xs text-gray-500 mb-3"></p>
+                                <div class="flex gap-2 mb-3">
+                                    <button id="live-ex-reveal-btn" onclick="window.liveExReveal()" class="flex-1 px-3 py-2 text-sm font-medium rounded-lg border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50">Show answers</button>
+                                    <button onclick="window.liveExEnd()" class="flex-1 px-3 py-2 text-sm font-medium rounded-lg bg-red-600 hover:bg-red-700 text-white">End</button>
+                                </div>
+                                <div id="live-ex-students" class="space-y-2 max-h-[28rem] overflow-y-auto"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- Admin: Results Tab -->
@@ -564,19 +601,26 @@
             }
         };
 
+        let currentStudentTabId = 'lessons';
+        let studentReturnTab = 'homework';
         window.switchStudentTab = function(tabId) {
-            const tabs = ['lessons', 'exercises', 'homework', 'board'];
+            const tabs = ['lessons', 'homework', 'board'];
+            if (!tabs.includes(tabId)) tabId = 'homework';
+            currentStudentTabId = tabId;
             tabs.forEach(t => {
                 document.getElementById(`tab-student-${t}`).classList.remove('tab-active', 'tab-inactive');
                 document.getElementById(`tab-student-${t}`).classList.add(t === tabId ? 'tab-active' : 'tab-inactive');
                 document.getElementById(`student-${t}-container`).classList.toggle('hidden', t !== tabId);
             });
-            if (tabId !== 'exercises') document.getElementById('active-exercise-view').classList.add('hidden');
+            document.getElementById('student-exercises-container').classList.add('hidden');
+            if (!window.liveExActive) document.getElementById('active-exercise-view').classList.add('hidden');
             if (tabId === 'board' && window.studentBoardShown) window.studentBoardShown();
         };
 
         window.switchAdminTab = function(tabId) {
-            const tabs = ['classes', 'lessons', 'exercises', 'homework', 'board', 'results'];
+            let hwSub = null;
+            if (tabId === 'exercises') { tabId = 'homework'; hwSub = 'exercises'; }
+            const tabs = ['classes', 'lessons', 'homework', 'board', 'results'];
             tabs.forEach(t => {
                 document.getElementById(`tab-admin-${t}`).className = (t === tabId) ? "tab-active pb-3 px-2 text-sm font-medium" : "tab-inactive pb-3 px-2 text-sm font-medium";
                 if(t === tabId) document.getElementById(`admin-${t}-container`).classList.remove('hidden');
@@ -584,9 +628,16 @@
             });
             if (tabId === 'results') window.loadResults(false);
             if (tabId === 'board') window.adminBoardOpen();
-            if(tabId === 'exercises' && document.getElementById('admin-questions-list').children.length === 0){
-                window.adminAddQuestionBlock(); 
-            }
+            if (tabId === 'homework') window.setHomeworkSub(hwSub || window.currentHwSub || 'assign');
+        };
+
+        window.setHomeworkSub = function(sub) {
+            window.currentHwSub = sub;
+            document.getElementById('hw-sub-assign').classList.toggle('hidden', sub !== 'assign');
+            document.getElementById('admin-exercises-container').classList.toggle('hidden', sub !== 'exercises');
+            document.getElementById('hwsub-assign').className = 'px-4 py-2 text-sm font-medium ' + (sub === 'assign' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50');
+            document.getElementById('hwsub-exercises').className = 'px-4 py-2 text-sm font-medium ' + (sub === 'exercises' ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50');
+            if (sub === 'exercises' && document.getElementById('admin-questions-list').children.length === 0) window.adminAddQuestionBlock();
         };
 
         window.execCmd = function(command, value = null) {
@@ -666,7 +717,7 @@
         async function fetchAdminExercises() {
             if (!isDbConnected) return;
             const { data, error } = await fetchAdminRows('portal_exercises', 'id, title, target_class, questions, created_at', [['is_hidden', 'settings'], ['is_hidden'], []]);
-            if (!error && data) { adminExercises = data; renderAdminExercises(); if (window.refreshAttachLists) refreshAttachLists(); }
+            if (!error && data) { adminExercises = data; renderAdminExercises(); if (window.refreshAttachLists) refreshAttachLists(); if (window.liveExRefreshList) liveExRefreshList(); }
         }
 
         function hiddenBadge(item) {
@@ -847,6 +898,11 @@ window.adminDeleteLesson = async function(id) {
         window.openExercise = function(id) {
             const ex = globalExercises.find(e => e.id == id);
             if (!ex) return;
+            if (window.liveExActive && !liveOpening) { alert('Your teacher is running a live exercise. Please finish it first (Live Board tab).'); window.switchStudentTab('board'); return; }
+            if (!liveOpening) {
+                studentReturnTab = currentStudentTabId;
+                ['lessons', 'homework', 'board'].forEach(t => document.getElementById(`student-${t}-container`).classList.add('hidden'));
+            }
             activeExerciseData = ex;
             studentAnswers = {};
             rightOrder = {};
@@ -873,6 +929,7 @@ window.adminDeleteLesson = async function(id) {
             // Starting state for the interactive question types
             ex.questions.forEach((q, qi) => {
                 const t = q.type || 'mcq';
+                if (QX[t]) QX[t].init(qi, q);
                 if (t === 'reorder') studentAnswers[qi] = shuffledIndices(q.items.length);
                 if (t === 'match' || t === 'link') {
                     studentAnswers[qi] = {};
@@ -922,12 +979,14 @@ window.adminDeleteLesson = async function(id) {
                 if (t === 'reorder') renderReorder(qi);
                 else if (t === 'match') renderMatch(qi);
                 else if (t === 'link') renderLink(qi);
+                else if (QX[t]) QX[t].render(qi, q);
             });
         };
 
         window.closeExercise = function() {
-            document.getElementById('student-exercises-container').classList.remove('hidden');
+            if (window.liveExActive) return;
             document.getElementById('active-exercise-view').classList.add('hidden');
+            window.switchStudentTab(studentReturnTab || 'homework');
         };
 
         let rightOrder = {};     // qi -> shuffled order of the right-hand items (match / link)
@@ -1081,6 +1140,7 @@ function mcqOptionsHtml(key, q, shuffle) {
             for (let qi = 0; qi < qs.length; qi++) {
                 const q = qs[qi];
                 const t = q.type || 'mcq';
+                if (QX[t] && !QX[t].answered(qi, q)) return qi + 1;
                 if ((t === 'mcq' || t === 'tf') && studentAnswers[qi] === undefined) return qi + 1;
                 if (t === 'passage' && (q.questions || []).some((sq, si) => studentAnswers[`${qi}-${si}`] === undefined)) return qi + 1;
                 if ((t === 'match' || t === 'link') && Object.keys(studentAnswers[qi] || {}).length < q.pairs.length) return qi + 1;
@@ -1094,6 +1154,7 @@ function mcqOptionsHtml(key, q, shuffle) {
             let score = 0, total = 0;
             activeExerciseData.questions.forEach((q, qi) => {
                 const t = q.type || 'mcq';
+                if (QX[t]) { const r = QX[t].score(qi, q); score += r.score; total += r.total; return; }
                 if (t === 'mcq') {
                     total++;
                     if (studentAnswers[qi] === parseInt(q.correctIndex)) score++;
@@ -1190,7 +1251,8 @@ function mcqOptionsHtml(key, q, shuffle) {
         function renderReview() {
             activeExerciseData.questions.forEach((q, qi) => {
                 const t = q.type || 'mcq';
-                if (t === 'mcq') reviewMcq(String(qi), q.options, parseInt(q.correctIndex, 10));
+                if (QX[t]) QX[t].review(qi, q);
+                else if (t === 'mcq') reviewMcq(String(qi), q.options, parseInt(q.correctIndex, 10));
                 else if (t === 'tf') reviewMcq(String(qi), ['True', 'False'], q.correct ? 0 : 1);
                 else if (t === 'passage') (q.questions || []).forEach((sq, si) => reviewMcq(`${qi}-${si}`, sq.options, parseInt(sq.correctIndex, 10)));
                 else if (t === 'reorder') {
@@ -1388,7 +1450,9 @@ window.adminAddQuestionBlock = function(type) {
             const container = document.getElementById('admin-questions-list');
             let inner = '';
 
-            if (type === 'mcq') {
+            if (QX[type]) {
+                inner = QX[type].builder();
+            } else if (type === 'mcq') {
                 inner = mcqFieldsHtml('Question Text');
             } else if (type === 'passage') {
                 inner = `
@@ -1555,6 +1619,7 @@ window.adminAddQuestionBlock = function(type) {
         function collectBlock(b, n) {
             const type = b.dataset.type || 'mcq';
             const label = `question ${n}`;
+            if (QX[type]) return QX[type].collect(b, n);
 
             if (type === 'mcq') {
                 return collectMcq(b.querySelector('.mcq-edit'), label);
@@ -1708,6 +1773,7 @@ window.adminAddQuestionBlock = function(type) {
 
         function fillBlock(block, q) {
             const type = block.dataset.type;
+            if (QX[type]) { QX[type].fill(block, q); return; }
             if (type === 'mcq') {
                 fillMcq(block.querySelector('.mcq-edit'), q);
             } else if (type === 'passage') {
@@ -2665,6 +2731,7 @@ window.exerciseGoBack = function () {
     const kind = exerciseReturn;
     exerciseReturn = null;
     updateExerciseBanner(false);
+    window.currentHwSub = 'assign';
     window.switchAdminTab(kind === 'lesson' ? 'lessons' : 'homework');
 };
 
@@ -2975,7 +3042,6 @@ window.openChatGpt = async function (id) {
 
 window.startLinkedExercise = function (id) {
     document.getElementById('lesson-modal').classList.add('hidden');
-    window.switchStudentTab('exercises');
     window.openExercise(id);
     document.getElementById('active-exercise-view').scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
@@ -3427,6 +3493,7 @@ class Board {
         }
         // from the teacher
         this.hasState = true;
+        if (op.t && op.t.indexOf('ex_') === 0) { if (window.liveExStudentOp) window.liveExStudentOp(op); return; }
         if (op.t === 'sync') {
             this.syncId = op.sid; this.allow = !!op.allow;
             this.pages = op.pages.map(p => ({ objs: [], bg: p.bg || 'white' }));
@@ -3453,6 +3520,7 @@ class Board {
     }
     sendSync() {
         const sid = newId();
+        if (this.isT && typeof liveExT !== 'undefined' && liveExT.active && liveExT.startOp) this.send(liveExT.startOp);
         this.send({ t: 'sync', sid, cur: this.cur, allow: this.allow, pages: this.pages.map(p => ({ bg: p.bg })) });
         this.pages.forEach((pg, p) => {
             let chunk = [], size = 0;
@@ -3477,6 +3545,7 @@ class Board {
         this.status = 'connecting'; this.online = [];
         this.refreshUi(); this.fit(); this.schedule();
         const key = 'class:' + String(cls).trim().toLowerCase();
+        this.inbox = new BoardTransport(key + ':inbox', this.id, this.isT ? 'teacher' : 'student', { onop: op => this.onInbox(op), onpresence: () => { }, onstatus: () => { } });
         this.tr = new BoardTransport(key, this.id, this.isT ? 'teacher' : 'student', {
             onop: op => this.onRemote(op),
             onpresence: list => {
@@ -3495,7 +3564,10 @@ class Board {
             }
         });
     }
+    onInbox(op) { if (this.isT && op && op.r === 's' && window.liveExTeacherOp) window.liveExTeacherOp(op); }
+    sendInbox(op) { if (this.inbox) this.inbox.send({ ...op, f: this.id, r: this.isT ? 't' : 's' }); }
     leave(silent) {
+        if (this.inbox) { this.inbox.close(); this.inbox = null; }
         if (this.tr) { this.tr.close(); this.tr = null; }
         this.status = 'offline'; this.online = [];
         if (!silent) this.refreshUi();
@@ -4041,7 +4113,8 @@ window.adminBoardOpen = function () {
     const hasClass = !!sel.value;
     document.getElementById('board-empty-msg').classList.toggle('hidden', hasClass);
     document.getElementById('board-live-btn').classList.toggle('hidden', !hasClass);
-    document.getElementById('teacher-board-mount').classList.toggle('hidden', !hasClass);
+    document.getElementById('board-wrap').classList.toggle('hidden', !hasClass);
+    if (window.liveExRefreshList) liveExRefreshList();
     if (hasClass) {
         const b = ensureTeacherBoard();
         if (b.cls !== sel.value) { b.leave(true); b.cls = sel.value; b.load(); b.hist = []; b.redoS = []; b.status = 'offline'; b.online = []; b.refreshUi(); }
@@ -4076,7 +4149,7 @@ window.studentBoardConnect = function (cls) {
     if (!studentBoard) studentBoard = new Board(document.getElementById('student-board-mount'), 'student', { onLive: on => setLiveDot(on) });
     if (studentBoard.cls !== cls || !studentBoard.tr) studentBoard.join(cls);
 };
-window.studentBoardDisconnect = function () { if (studentBoard) { studentBoard.leave(); setLiveDot(false); } };
+window.studentBoardDisconnect = function () { if (window.liveExStudentLeave) liveExStudentLeave(); if (studentBoard) { studentBoard.leave(); setLiveDot(false); } };
 window.studentBoardShown = function () { if (studentBoard) setTimeout(() => { studentBoard.fit(); studentBoard.schedule(); }, 0); };
 
 
@@ -4165,7 +4238,8 @@ function applyPrivateSession() {
     document.getElementById('student-dash-title').textContent = on ? 'Welcome, ' + privateSession.name : 'Student Dashboard';
     document.getElementById('student-dash-sub').textContent = on ? 'Your private lessons, exercises and homework.' : 'Select your class to view assigned materials.';
     if (on) document.getElementById('student-private-name-label').textContent = privateSession.name;
-    window.closeExercise && document.getElementById('active-exercise-view').classList.add('hidden');
+    if (window.liveExStudentLeave) window.liveExStudentLeave();
+    document.getElementById('active-exercise-view').classList.add('hidden');
     window.switchStudentTab('lessons');
     window.handleClassSelection();
 }
@@ -4213,6 +4287,676 @@ async function restorePrivateSession() {
     applyPrivateSession();
 }
 if (isDbConnected) restorePrivateSession();
+
+    </script>
+    <script>
+// ==========================================================================
+// MORE EXERCISE TYPES: fill, short, multi, build, sort, dictation, mistake
+// Each type plugs into the existing builder / student view / scoring / review via QX[type].
+// ==========================================================================
+const QXS = {};   // per-question runtime state on the student side
+
+Object.assign(Q_TYPE_LABELS, {
+    fill: 'Fill in the blanks', short: 'Short answer', multi: 'Multiple answers',
+    build: 'Sentence building', sort: 'Sorting', dictation: 'Dictation (listening)', mistake: 'Find the mistake'
+});
+
+// ---------- helpers ----------
+function qxNorm(s) {
+    return String(s == null ? '' : s).toLowerCase().replace(/[‘’]/g, "'").replace(/[“”]/g, '"')
+        .replace(/\s+/g, ' ').trim().replace(/^[\s.,!?;:]+|[\s.,!?;:]+$/g, '');
+}
+function qxNormLoose(s) { return qxNorm(s).replace(/[.,!?;:"]/g, '').replace(/\s+/g, ' ').trim(); }
+
+// "She [goes|go es] to [school]." -> { parts:["She "," to ","."], answers:[["goes","go es"],["school"]], raws:[...] }
+function qxParse(str) {
+    const parts = [], answers = [], raws = [];
+    let last = 0, m;
+    const re = /\[([^\]]+)\]/g;
+    while ((m = re.exec(str))) {
+        parts.push(str.slice(last, m.index));
+        raws.push(m[1].trim());
+        answers.push(m[1].split('|').map(s => s.trim()).filter(Boolean));
+        last = re.lastIndex;
+    }
+    parts.push(str.slice(last));
+    return { parts, answers, raws };
+}
+
+// words of a sentence, remembering which ones were in [brackets] (used by "Find the mistake")
+function qxTokens(str) {
+    const { parts, raws } = qxParse(str);
+    const tokens = [], wrong = [];
+    parts.forEach((part, i) => {
+        const words = part.split(/\s+/).filter(Boolean);
+        if (words.length && i > 0 && !/^\s/.test(part) && tokens.length) {
+            tokens[tokens.length - 1] += words.shift();      // punctuation stuck to the bracketed word
+        }
+        words.forEach(w => tokens.push(w));
+        if (i < raws.length) raws[i].split(/\s+/).filter(Boolean).forEach(w => { wrong.push(tokens.length); tokens.push(w); });
+    });
+    return { tokens, wrong };
+}
+
+const qxSameSet = (a, b) => a.length === b.length && a.every(x => b.includes(x));
+const qxIn = 'px-3 py-1.5 border border-gray-300 rounded text-sm bg-white';
+
+function qxRowHtml(cls, ph) {
+    return `<div class="edit-row flex items-center gap-2">
+        <span class="row-num w-6 text-center text-sm text-gray-500"></span>
+        <input type="text" class="${cls} flex-1 min-w-0 ${qxIn}" placeholder="${ph}">
+        <button type="button" onclick="window.adminRemoveRow(this)" class="text-red-400 hover:text-red-600 font-bold text-lg leading-none px-1" title="Remove">&times;</button>
+    </div>`;
+}
+function qxMultiRowHtml() {
+    return `<div class="edit-row flex items-center gap-2">
+        <input type="checkbox" class="mx-correct w-4 h-4 cursor-pointer" title="Tick if this answer is correct">
+        <input type="text" class="mx-text flex-1 min-w-0 ${qxIn}" placeholder="Option">
+        <button type="button" onclick="window.adminRemoveRow(this)" class="text-red-400 hover:text-red-600 font-bold text-lg leading-none px-1" title="Remove">&times;</button>
+    </div>`;
+}
+function qxGroupHtml() {
+    return `<div class="sort-group relative p-3 bg-white border border-gray-200 rounded-lg">
+        <button type="button" onclick="this.closest('.sort-group').remove()" class="absolute top-1 right-2 text-red-400 hover:text-red-600 font-bold text-lg leading-none" title="Remove group">&times;</button>
+        <input type="text" class="sg-name w-full mb-2 ${qxIn}" placeholder="Group name (e.g. Fruits)">
+        <textarea class="sg-items w-full ${qxIn}" rows="3" placeholder="Items in this group, one per line"></textarea>
+    </div>`;
+}
+const QX_ROWS = {
+    fill: ['fill-input', 'She [goes] to school every day.'],
+    build: ['build-input', 'The cat sat on the mat.'],
+    dictation: ['dict-input', 'Sentence students will hear'],
+    mistake: ['mis-input', 'She [go] to school every day.']
+};
+window.qxAddRow = function (btn, kind) {
+    const list = btn.closest('.admin-q-block').querySelector('.row-list');
+    list.insertAdjacentHTML('beforeend', kind === 'multi' ? qxMultiRowHtml() : qxRowHtml(...QX_ROWS[kind]));
+    renumberRows(list);
+};
+window.qxAddGroup = function (btn) {
+    btn.closest('.admin-q-block').querySelector('.group-list').insertAdjacentHTML('beforeend', qxGroupHtml());
+};
+const qxInstr = ph => `<input type="text" class="q-text-input w-full px-3 py-2 border rounded mb-2 bg-white" placeholder="${ph}">`;
+const qxHint = t => `<p class="text-xs text-gray-500 mb-2">${t}</p>`;
+const qxAddBtn = (kind, label) => `<button type="button" onclick="window.qxAddRow(this, '${kind}')" class="add-q-btn mt-3">${label}</button>`;
+const qxRows = (kind, n) => `<div class="row-list space-y-2">${Array.from({ length: n }, () => qxRowHtml(...QX_ROWS[kind])).join('')}</div>`;
+
+function qxFillRows(block, values, kind) {
+    const list = block.querySelector('.row-list');
+    while (list.querySelectorAll('.edit-row').length < values.length) list.insertAdjacentHTML('beforeend', kind === 'multi' ? qxMultiRowHtml() : qxRowHtml(...QX_ROWS[kind]));
+    renumberRows(list);
+    return Array.from(list.querySelectorAll('.edit-row'));
+}
+function qxRowTexts(b, cls) { return Array.from(b.querySelectorAll('.' + cls)).map(i => i.value.trim()).filter(Boolean); }
+
+// ---------- student-side helpers ----------
+const qxChip = 'px-3 py-1.5 border border-gray-300 rounded-full bg-white text-sm';
+function qxQ(qi) { return activeExerciseData.questions[qi]; }
+function qxBody(qi) { return document.getElementById('qbody-' + qi); }
+const qxReviewing = qi => !!(QXS[qi] && QXS[qi].rev);
+function qxMark(el, good) {
+    el.classList.remove('border-gray-300', 'border-gray-400');
+    el.classList.add(good ? 'border-green-500' : 'border-red-500', good ? 'bg-green-50' : 'bg-red-50');
+}
+
+const QX = {};
+
+// ===================== FILL IN THE BLANKS =====================
+QX.fill = {
+    builder: () => qxInstr('Instruction (e.g. Complete the sentences with the correct verb)') +
+        qxHint('Write each sentence and put the missing word in [square brackets], e.g. <b>She [goes] to school.</b> Several accepted answers: <b>I [am|\'m] happy.</b> A sentence can have several blanks.') +
+        qxRows('fill', 3) + qxAddBtn('fill', '+ Add sentence') +
+        `<label class="flex items-center gap-2 text-sm text-gray-700 mt-3 cursor-pointer"><input type="checkbox" class="fill-bank w-4 h-4"> Use dropdowns with a word bank instead of typing</label>`,
+    collect(b, n) {
+        const items = qxRowTexts(b, 'fill-input');
+        if (!items.length) return { error: `Question ${n} needs at least one sentence.` };
+        for (const s of items) { const p = qxParse(s); if (!p.answers.length || p.answers.some(a => !a.length)) return { error: `Every sentence in question ${n} needs a [blank] with the answer inside the brackets.` }; }
+        return { data: { type: 'fill', text: b.querySelector('.q-text-input').value.trim() || 'Fill in the blanks.', items, bank: b.querySelector('.fill-bank').checked } };
+    },
+    fill(b, q) {
+        b.querySelector('.q-text-input').value = q.text || '';
+        qxFillRows(b, q.items || [], 'fill').forEach((r, i) => { r.querySelector('.fill-input').value = (q.items || [])[i] || ''; });
+        b.querySelector('.fill-bank').checked = !!q.bank;
+    },
+    init(qi) { studentAnswers[qi] = {}; QXS[qi] = {}; },
+    render(qi, q) {
+        const bank = [];
+        const sents = q.items.map(s => qxParse(s));
+        if (q.bank) sents.forEach(p => p.answers.forEach(a => { if (!bank.includes(a[0])) bank.push(a[0]); }));
+        const order = shuffledIndices(bank.length).map(i => bank[i]);
+        let html = q.bank ? `<div class="flex flex-wrap gap-2 mb-3 p-3 bg-indigo-50 border border-indigo-100 rounded-lg">${order.map(w => `<span class="${qxChip}">${escapeHtml(w)}</span>`).join('')}</div>` : '';
+        html += sents.map((p, si) => `<div class="mt-3 leading-10">` + p.parts.map((part, bi) => {
+            let h = escapeHtml(part);
+            if (bi < p.answers.length) {
+                const k = `${si}-${bi}`;
+                if (q.bank) {
+                    h += `<select data-k="${k}" onchange="window.qxFill(${qi}, '${k}', this.value)" class="qx-in mx-1 px-2 py-1.5 border-2 border-gray-300 rounded-lg bg-gray-50"><option value="">...</option>${order.map(w => `<option value="${escapeHtml(w)}">${escapeHtml(w)}</option>`).join('')}</select>`;
+                } else {
+                    const w = Math.max(6, Math.max(...p.answers[bi].map(a => a.length)) + 3);
+                    h += `<input type="text" data-k="${k}" oninput="window.qxFill(${qi}, '${k}', this.value)" autocomplete="off" autocapitalize="none" spellcheck="false" class="qx-in mx-1 px-2 py-1 border-2 border-gray-300 rounded-lg bg-gray-50 text-center" style="width:${w}ch;max-width:100%">`;
+                }
+            }
+            return h;
+        }).join('') + `</div>`).join('');
+        qxBody(qi).innerHTML = html;
+    },
+    answered(qi, q) {
+        const a = studentAnswers[qi] || {};
+        return q.items.every((s, si) => qxParse(s).answers.every((_, bi) => (a[`${si}-${bi}`] || '').trim() !== ''));
+    },
+    _ok(qi, q, si, bi, ans) { const v = (studentAnswers[qi] || {})[`${si}-${bi}`]; return ans.some(x => qxNorm(x) === qxNorm(v)); },
+    score(qi, q) {
+        let score = 0, total = 0;
+        q.items.forEach((s, si) => qxParse(s).answers.forEach((ans, bi) => { total++; if (QX.fill._ok(qi, q, si, bi, ans)) score++; }));
+        return { score, total };
+    },
+    review(qi, q) {
+        let all = true;
+        const lines = q.items.map((s, si) => {
+            const p = qxParse(s);
+            return '<li>' + p.parts.map((part, bi) => {
+                let h = escapeHtml(part);
+                if (bi < p.answers.length) {
+                    const good = QX.fill._ok(qi, q, si, bi, p.answers[bi]);
+                    if (!good) all = false;
+                    const el = qxBody(qi).querySelector(`[data-k="${si}-${bi}"]`); if (el) qxMark(el, good);
+                    h += `<strong>${good ? '&#10004; ' : '&#10008; '}${escapeHtml(p.answers[bi].join(' / '))}</strong>`;
+                }
+                return h;
+            }).join('') + '</li>';
+        });
+        setFeedback(qi, all, (all ? '&#10004; All correct' : '&#10008; Correct answers:') + '<ul class="mt-1 space-y-0.5 list-none">' + lines.join('') + '</ul>');
+    }
+};
+window.qxFill = (qi, k, v) => { studentAnswers[qi][k] = v; };
+
+// ===================== SHORT ANSWER =====================
+QX.short = {
+    builder: () => qxInstr('Question (e.g. What is the capital of France?)') +
+        qxHint('Write every accepted answer on its own line. Capital letters and the final full stop are ignored.') +
+        `<textarea class="short-answers w-full px-3 py-2 border rounded bg-white text-sm" rows="3" placeholder="Paris"></textarea>`,
+    collect(b, n) {
+        const text = b.querySelector('.q-text-input').value.trim();
+        if (!text) return { error: `Question ${n} needs the question text.` };
+        const answers = b.querySelector('.short-answers').value.split('\n').map(s => s.trim()).filter(Boolean);
+        if (!answers.length) return { error: `Question ${n} needs at least one accepted answer.` };
+        return { data: { type: 'short', text, answers } };
+    },
+    fill(b, q) { b.querySelector('.q-text-input').value = q.text || ''; b.querySelector('.short-answers').value = (q.answers || []).join('\n'); },
+    init(qi) { studentAnswers[qi] = ''; QXS[qi] = {}; },
+    render(qi) {
+        qxBody(qi).innerHTML = `<input type="text" oninput="studentAnswers[${qi}] = this.value" autocomplete="off" spellcheck="false" placeholder="Type your answer" class="qx-in w-full px-4 py-2 border-2 border-gray-300 rounded-lg bg-gray-50">`;
+    },
+    answered: qi => String(studentAnswers[qi] || '').trim() !== '',
+    _ok: (qi, q) => q.answers.some(a => qxNorm(a) === qxNorm(studentAnswers[qi])),
+    score(qi, q) { return { score: QX.short._ok(qi, q) ? 1 : 0, total: 1 }; },
+    review(qi, q) {
+        const good = QX.short._ok(qi, q);
+        const el = qxBody(qi).querySelector('.qx-in'); if (el) qxMark(el, good);
+        setFeedback(qi, good, good ? '&#10004; Correct' : '&#10008; Accepted answer' + (q.answers.length > 1 ? 's' : '') + ': <strong>' + q.answers.map(escapeHtml).join(' / ') + '</strong>');
+    }
+};
+
+// ===================== MULTIPLE ANSWERS =====================
+QX.multi = {
+    builder: () => qxInstr('Question (e.g. Which of these are fruits?)') +
+        qxHint('Tick <b>every</b> correct answer. Students must select exactly the correct ones to get the point.') +
+        `<div class="row-list space-y-2">${[0, 1, 2, 3].map(qxMultiRowHtml).join('')}</div>` + qxAddBtn('multi', '+ Add option'),
+    collect(b, n) {
+        const text = b.querySelector('.q-text-input').value.trim();
+        if (!text) return { error: `Question ${n} needs the question text.` };
+        const options = [], correct = [];
+        b.querySelectorAll('.edit-row').forEach(r => {
+            const t = r.querySelector('.mx-text').value.trim(); if (!t) return;
+            if (r.querySelector('.mx-correct').checked) correct.push(options.length);
+            options.push(t);
+        });
+        if (options.length < 2) return { error: `Question ${n} needs at least 2 options.` };
+        if (!correct.length) return { error: `Tick at least one correct option in question ${n}.` };
+        return { data: { type: 'multi', text, options, correct } };
+    },
+    fill(b, q) {
+        b.querySelector('.q-text-input').value = q.text || '';
+        qxFillRows(b, q.options || [], 'multi').forEach((r, i) => {
+            r.querySelector('.mx-text').value = (q.options || [])[i] || '';
+            r.querySelector('.mx-correct').checked = (q.correct || []).includes(i);
+        });
+    },
+    init(qi, q) {
+        studentAnswers[qi] = [];
+        QXS[qi] = { order: exSettings.shuffleOptions ? shuffledIndices(q.options.length) : q.options.map((_, i) => i) };
+    },
+    render(qi, q) {
+        const sel = studentAnswers[qi], rev = qxReviewing(qi);
+        qxBody(qi).innerHTML = `<p class="text-xs text-gray-500 mb-2">Select all the correct answers.</p><div class="space-y-2">` + QXS[qi].order.map(oi => {
+            let cls = sel.includes(oi) ? 'mcq-selected' : '';
+            if (rev) cls = q.correct.includes(oi) ? 'mcq-correct' : (sel.includes(oi) ? 'mcq-wrong' : '');
+            return `<div class="mcq-option p-3 border border-gray-300 rounded-lg cursor-pointer bg-gray-50 flex items-center gap-3 ${cls}" onclick="window.qxMulti(${qi}, ${oi})">
+                <span class="w-5 h-5 flex-shrink-0 rounded border-2 border-current flex items-center justify-center text-xs">${sel.includes(oi) ? '&#10003;' : ''}</span>${escapeHtml(q.options[oi])}</div>`;
+        }).join('') + `</div>`;
+    },
+    answered: qi => (studentAnswers[qi] || []).length > 0,
+    score(qi, q) { return { score: qxSameSet(studentAnswers[qi] || [], q.correct) ? 1 : 0, total: 1 }; },
+    review(qi, q) {
+        QXS[qi].rev = true; QX.multi.render(qi, q);
+        const good = qxSameSet(studentAnswers[qi] || [], q.correct);
+        setFeedback(qi, good, good ? '&#10004; Correct' : '&#10008; Correct answers: <strong>' + q.correct.map(i => escapeHtml(q.options[i])).join(', ') + '</strong>');
+    }
+};
+window.qxMulti = function (qi, oi) {
+    const a = studentAnswers[qi], i = a.indexOf(oi);
+    if (i >= 0) a.splice(i, 1); else a.push(oi);
+    QX.multi.render(qi, qxQ(qi));
+};
+
+// ===================== SENTENCE BUILDING =====================
+QX.build = {
+    builder: () => qxInstr('Instruction (e.g. Put the words in the correct order)') +
+        qxHint('Type each sentence correctly. Students see the words shuffled and tap them to rebuild the sentence. 1 point per sentence.') +
+        qxRows('build', 3) + qxAddBtn('build', '+ Add sentence'),
+    collect(b, n) {
+        const sentences = qxRowTexts(b, 'build-input');
+        if (!sentences.length) return { error: `Question ${n} needs at least one sentence.` };
+        if (sentences.some(s => s.split(/\s+/).length < 2)) return { error: `Every sentence in question ${n} needs at least 2 words.` };
+        return { data: { type: 'build', text: b.querySelector('.q-text-input').value.trim() || 'Put the words in the correct order.', sentences } };
+    },
+    fill(b, q) {
+        b.querySelector('.q-text-input').value = q.text || '';
+        qxFillRows(b, q.sentences || [], 'build').forEach((r, i) => { r.querySelector('.build-input').value = (q.sentences || [])[i] || ''; });
+    },
+    init(qi, q) {
+        studentAnswers[qi] = {};
+        QXS[qi] = { order: q.sentences.map(s => shuffledIndices(s.split(/\s+/).length)) };
+        q.sentences.forEach((_, si) => { studentAnswers[qi][si] = []; });
+    },
+    _built: (qi, q, si) => (studentAnswers[qi][si] || []).map(ti => q.sentences[si].split(/\s+/)[ti]).join(' '),
+    _ok: (qi, q, si) => qxNorm(QX.build._built(qi, q, si)) === qxNorm(q.sentences[si]),
+    render(qi, q) {
+        const rev = qxReviewing(qi);
+        qxBody(qi).innerHTML = q.sentences.map((s, si) => {
+            const words = s.split(/\s+/), chosen = studentAnswers[qi][si], bank = QXS[qi].order[si].filter(ti => !chosen.includes(ti));
+            const good = rev ? QX.build._ok(qi, q, si) : null;
+            const area = rev ? (good ? 'border-green-500 bg-green-50' : 'border-red-500 bg-red-50') : 'border-gray-300';
+            return `<div class="mt-4">
+                <div class="min-h-[3rem] flex flex-wrap gap-2 p-2 border-2 border-dashed ${area} rounded-lg">
+                    ${chosen.length ? chosen.map((ti, pos) => `<button type="button" onclick="window.qxBuild(${qi}, ${si}, ${pos}, 'del')" class="${qxChip} bg-indigo-50 border-indigo-300">${escapeHtml(words[ti])}</button>`).join('') : '<span class="text-sm text-gray-400 self-center px-1">Tap the words below</span>'}
+                </div>
+                <div class="flex flex-wrap items-center gap-2 mt-2">
+                    ${bank.map(ti => `<button type="button" onclick="window.qxBuild(${qi}, ${si}, ${ti}, 'add')" class="${qxChip} hover:bg-indigo-50">${escapeHtml(words[ti])}</button>`).join('')}
+                    ${chosen.length && !rev ? `<button type="button" onclick="window.qxBuild(${qi}, ${si}, 0, 'reset')" class="text-xs text-indigo-600 hover:underline ml-1">Reset</button>` : ''}
+                </div></div>`;
+        }).join('');
+    },
+    answered(qi, q) { return q.sentences.every((s, si) => (studentAnswers[qi][si] || []).length === s.split(/\s+/).length); },
+    score(qi, q) {
+        let score = 0;
+        q.sentences.forEach((s, si) => { if (QX.build._ok(qi, q, si)) score++; });
+        return { score, total: q.sentences.length };
+    },
+    review(qi, q) {
+        QXS[qi].rev = true; QX.build.render(qi, q);
+        const marks = q.sentences.map((s, si) => QX.build._ok(qi, q, si)), all = marks.every(Boolean);
+        setFeedback(qi, all, (all ? '&#10004; All correct' : '&#10008; Correct sentences:') + '<ul class="mt-1 space-y-0.5 list-none">' + q.sentences.map((s, i) => `<li>${marks[i] ? '&#10004;' : '&#10008;'} <strong>${escapeHtml(s)}</strong></li>`).join('') + '</ul>');
+    }
+};
+window.qxBuild = function (qi, si, v, mode) {
+    const a = studentAnswers[qi][si];
+    if (mode === 'add') a.push(v); else if (mode === 'del') a.splice(v, 1); else a.length = 0;
+    QX.build.render(qi, qxQ(qi));
+};
+
+// ===================== SORTING =====================
+QX.sort = {
+    builder: () => qxInstr('Instruction (e.g. Put each word in the correct group)') +
+        qxHint('Create at least 2 groups and list their items, one per line. Students sort the shuffled items into the groups. 1 point per item.') +
+        `<div class="group-list space-y-3">${qxGroupHtml()}${qxGroupHtml()}</div>` +
+        `<button type="button" onclick="window.qxAddGroup(this)" class="add-q-btn mt-3">+ Add group</button>`,
+    collect(b, n) {
+        const groups = [];
+        for (const g of b.querySelectorAll('.sort-group')) {
+            const name = g.querySelector('.sg-name').value.trim();
+            const items = g.querySelector('.sg-items').value.split('\n').map(s => s.trim()).filter(Boolean);
+            if (!name && !items.length) continue;
+            if (!name || !items.length) return { error: `Every group in question ${n} needs a name and at least one item.` };
+            groups.push({ name, items });
+        }
+        if (groups.length < 2) return { error: `Question ${n} needs at least 2 groups.` };
+        return { data: { type: 'sort', text: b.querySelector('.q-text-input').value.trim() || 'Put each item in the correct group.', groups } };
+    },
+    fill(b, q) {
+        b.querySelector('.q-text-input').value = q.text || '';
+        const gs = q.groups || [], list = b.querySelector('.group-list');
+        while (list.querySelectorAll('.sort-group').length < gs.length) list.insertAdjacentHTML('beforeend', qxGroupHtml());
+        list.querySelectorAll('.sort-group').forEach((el, i) => {
+            if (!gs[i]) return;
+            el.querySelector('.sg-name').value = gs[i].name; el.querySelector('.sg-items').value = (gs[i].items || []).join('\n');
+        });
+    },
+    _flat: q => q.groups.flatMap((g, gi) => g.items.map(t => ({ t, g: gi }))),
+    init(qi, q) {
+        studentAnswers[qi] = {};
+        const n = QX.sort._flat(q).length;
+        QXS[qi] = { order: shuffledIndices(n) };
+    },
+    render(qi, q) {
+        const flat = QX.sort._flat(q), ans = studentAnswers[qi], rev = qxReviewing(qi);
+        qxBody(qi).innerHTML = QXS[qi].order.map(k => {
+            const it = flat[k], good = rev ? ans[k] === it.g : null;
+            const cls = rev ? (good ? 'border-green-500 bg-green-50' : 'border-red-500 bg-red-50') : 'border-gray-200 bg-gray-50';
+            return `<div class="flex flex-col sm:flex-row sm:items-center gap-2 p-3 mt-2 border rounded-lg ${cls}">
+                <span class="sm:w-1/2 font-medium">${escapeHtml(it.t)}</span>
+                <select onchange="window.qxSort(${qi}, ${k}, this.value)" class="sm:w-1/2 px-3 py-2 border border-gray-300 rounded-lg bg-white">
+                    <option value="">-- Choose a group --</option>
+                    ${q.groups.map((g, gi) => `<option value="${gi}" ${ans[k] === gi ? 'selected' : ''}>${escapeHtml(g.name)}</option>`).join('')}
+                </select></div>`;
+        }).join('');
+    },
+    answered(qi, q) { return QX.sort._flat(q).every((_, k) => studentAnswers[qi][k] !== undefined); },
+    score(qi, q) {
+        const flat = QX.sort._flat(q);
+        return { score: flat.filter((it, k) => studentAnswers[qi][k] === it.g).length, total: flat.length };
+    },
+    review(qi, q) {
+        QXS[qi].rev = true; QX.sort.render(qi, q);
+        const r = QX.sort.score(qi, q), all = r.score === r.total;
+        setFeedback(qi, all, (all ? '&#10004; All correct' : '&#10008; Correct groups:') + '<ul class="mt-1 space-y-0.5 list-none">' + q.groups.map(g => `<li><strong>${escapeHtml(g.name)}</strong>: ${g.items.map(escapeHtml).join(', ')}</li>`).join('') + '</ul>');
+    }
+};
+window.qxSort = function (qi, k, v) {
+    if (v === '') delete studentAnswers[qi][k]; else studentAnswers[qi][k] = Number(v);
+};
+
+// ===================== DICTATION (listening) =====================
+QX.dictation = {
+    builder: () => qxInstr('Instruction (e.g. Listen and type what you hear)') +
+        qxHint('Type the sentences that will be <b>read aloud</b> by the student\'s device. Students press play (as many times as they like) and type what they hear. Capitals and punctuation are ignored. 1 point per sentence.') +
+        qxRows('dictation', 3) + qxAddBtn('dictation', '+ Add sentence') +
+        `<label class="flex items-center gap-2 text-sm text-gray-700 mt-3">Accent
+            <select class="dict-accent border border-gray-300 rounded-md px-2 py-1 bg-white text-sm"><option value="en-US">American</option><option value="en-GB">British</option></select></label>`,
+    collect(b, n) {
+        const sentences = qxRowTexts(b, 'dict-input');
+        if (!sentences.length) return { error: `Question ${n} needs at least one sentence.` };
+        return { data: { type: 'dictation', text: b.querySelector('.q-text-input').value.trim() || 'Listen and type what you hear.', sentences, accent: b.querySelector('.dict-accent').value } };
+    },
+    fill(b, q) {
+        b.querySelector('.q-text-input').value = q.text || '';
+        qxFillRows(b, q.sentences || [], 'dictation').forEach((r, i) => { r.querySelector('.dict-input').value = (q.sentences || [])[i] || ''; });
+        b.querySelector('.dict-accent').value = q.accent || 'en-US';
+    },
+    init(qi) { studentAnswers[qi] = {}; QXS[qi] = {}; },
+    render(qi, q) {
+        const can = 'speechSynthesis' in window;
+        qxBody(qi).innerHTML = (can ? '' : '<p class="text-sm text-red-600 mb-2">Audio is not supported on this device or browser. Try another browser.</p>') +
+            q.sentences.map((s, si) => `<div class="mt-3 flex flex-col sm:flex-row sm:items-center gap-2">
+                <div class="flex gap-2 flex-shrink-0">
+                    <button type="button" onclick="window.qxSpeak(${qi}, ${si}, false)" class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium">&#9654; Play</button>
+                    <button type="button" onclick="window.qxSpeak(${qi}, ${si}, true)" class="px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm">Slow</button>
+                </div>
+                <input type="text" data-k="${si}" oninput="studentAnswers[${qi}][${si}] = this.value" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Type what you hear" class="qx-in flex-1 min-w-0 px-4 py-2 border-2 border-gray-300 rounded-lg bg-gray-50">
+            </div>`).join('');
+    },
+    answered(qi, q) { return q.sentences.every((_, si) => String(studentAnswers[qi][si] || '').trim() !== ''); },
+    _ok: (qi, q, si) => qxNormLoose(studentAnswers[qi][si]) === qxNormLoose(q.sentences[si]),
+    score(qi, q) { return { score: q.sentences.filter((_, si) => QX.dictation._ok(qi, q, si)).length, total: q.sentences.length }; },
+    review(qi, q) {
+        const marks = q.sentences.map((_, si) => QX.dictation._ok(qi, q, si));
+        marks.forEach((g, si) => { const el = qxBody(qi).querySelector(`[data-k="${si}"]`); if (el) qxMark(el, g); });
+        const all = marks.every(Boolean);
+        setFeedback(qi, all, (all ? '&#10004; All correct' : '&#10008; What was said:') + '<ul class="mt-1 space-y-0.5 list-none">' + q.sentences.map((s, i) => `<li>${marks[i] ? '&#10004;' : '&#10008;'} <strong>${escapeHtml(s)}</strong></li>`).join('') + '</ul>');
+    }
+};
+window.qxSpeak = function (qi, si, slow) {
+    if (!('speechSynthesis' in window)) return;
+    const q = qxQ(qi);
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(q.sentences[si]);
+    u.lang = q.accent || 'en-US'; u.rate = slow ? 0.6 : 0.9;
+    speechSynthesis.speak(u);
+};
+
+// ===================== FIND THE MISTAKE =====================
+QX.mistake = {
+    builder: () => qxInstr('Instruction (e.g. Tap the word that is wrong)') +
+        qxHint('Write each sentence with the <b>wrong word in [square brackets]</b>, e.g. <b>She [go] to school every day.</b> Students tap the wrong word. 1 point per sentence.') +
+        qxRows('mistake', 3) + qxAddBtn('mistake', '+ Add sentence'),
+    collect(b, n) {
+        const items = qxRowTexts(b, 'mis-input');
+        if (!items.length) return { error: `Question ${n} needs at least one sentence.` };
+        for (const s of items) if (qxParse(s).raws.length !== 1) return { error: `Every sentence in question ${n} needs exactly one [bracketed] mistake.` };
+        return { data: { type: 'mistake', text: b.querySelector('.q-text-input').value.trim() || 'Tap the word that is wrong.', items } };
+    },
+    fill(b, q) {
+        b.querySelector('.q-text-input').value = q.text || '';
+        qxFillRows(b, q.items || [], 'mistake').forEach((r, i) => { r.querySelector('.mis-input').value = (q.items || [])[i] || ''; });
+    },
+    init(qi, q) { studentAnswers[qi] = {}; QXS[qi] = {}; q.items.forEach((_, si) => { studentAnswers[qi][si] = []; }); },
+    _ok: (qi, q, si) => qxSameSet(studentAnswers[qi][si] || [], qxTokens(q.items[si]).wrong),
+    render(qi, q) {
+        const rev = qxReviewing(qi);
+        qxBody(qi).innerHTML = q.items.map((s, si) => {
+            const { tokens, wrong } = qxTokens(s), sel = studentAnswers[qi][si] || [];
+            return `<div class="mt-3 flex flex-wrap gap-2 p-3 border border-gray-200 rounded-lg bg-gray-50">` + tokens.map((w, ti) => {
+                let cls = sel.includes(ti) ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white hover:bg-indigo-50';
+                if (rev) cls = wrong.includes(ti) ? 'mcq-correct' : (sel.includes(ti) ? 'mcq-wrong' : 'bg-white');
+                return `<button type="button" ${rev ? 'disabled' : ''} onclick="window.qxMist(${qi}, ${si}, ${ti})" class="${qxChip} ${cls}">${escapeHtml(w)}</button>`;
+            }).join('') + `</div>`;
+        }).join('');
+    },
+    answered(qi, q) { return q.items.every((_, si) => (studentAnswers[qi][si] || []).length > 0); },
+    score(qi, q) { return { score: q.items.filter((_, si) => QX.mistake._ok(qi, q, si)).length, total: q.items.length }; },
+    review(qi, q) {
+        QXS[qi].rev = true; QX.mistake.render(qi, q);
+        const marks = q.items.map((_, si) => QX.mistake._ok(qi, q, si)), all = marks.every(Boolean);
+        setFeedback(qi, all, all ? '&#10004; All mistakes found' : '&#10008; The wrong word' + (q.items.length > 1 ? 's were' : ' was') + ':<ul class="mt-1 space-y-0.5 list-none">' + q.items.map((s, i) => `<li>${marks[i] ? '&#10004;' : '&#10008;'} ${escapeHtml(qxParse(s).raws[0])}</li>`).join('') + '</ul>');
+    }
+};
+window.qxMist = function (qi, si, ti) {
+    const a = studentAnswers[qi][si], i = a.indexOf(ti);
+    if (i >= 0) a.splice(i, 1); else a.push(ti);
+    QX.mistake.render(qi, qxQ(qi));
+};
+
+    </script>
+    <script>
+// ==========================================================================
+// LIVE EXERCISES: the teacher pushes an exercise onto the board session,
+// students answer it on their device, and the teacher watches answers arrive live.
+// Teacher -> students: the normal board channel.  Students -> teacher: a private "inbox" channel.
+// ==========================================================================
+window.liveExActive = false;       // student side: a live exercise is on screen
+let liveOpening = false;           // true while the live exercise is being opened by code
+
+// ---------- per-question snapshot (student side) ----------
+function lxAnswered(q, qi) {
+    const t = q.type || 'mcq', a = studentAnswers[qi];
+    if (QX[t]) { try { return QX[t].answered(qi, q); } catch (e) { return false; } }
+    if (t === 'mcq' || t === 'tf') return a !== undefined;
+    if (t === 'passage') return (q.questions || []).every((_, si) => studentAnswers[`${qi}-${si}`] !== undefined);
+    if (t === 'match' || t === 'link') return Object.keys(a || {}).length >= q.pairs.length;
+    return true;   // reorder always has an order
+}
+function lxScore(q, qi) {
+    const t = q.type || 'mcq', a = studentAnswers[qi];
+    try {
+        if (QX[t]) return QX[t].score(qi, q);
+        if (t === 'mcq') return { score: a === parseInt(q.correctIndex) ? 1 : 0, total: 1 };
+        if (t === 'tf') return { score: a === (q.correct ? 0 : 1) ? 1 : 0, total: 1 };
+        if (t === 'passage') {
+            const subs = q.questions || [];
+            return { score: subs.filter((sq, si) => studentAnswers[`${qi}-${si}`] === parseInt(sq.correctIndex)).length, total: subs.length };
+        }
+        if (t === 'reorder') return { score: a.every((v, i) => v === i) ? 1 : 0, total: 1 };
+        if (t === 'match' || t === 'link') return { score: q.pairs.filter((p, i) => (a || {})[i] === i).length, total: q.pairs.length };
+    } catch (e) { }
+    return { score: 0, total: 1 };
+}
+function lxText(q, qi) {
+    const t = q.type || 'mcq', a = studentAnswers[qi];
+    const cut = s => String(s).length > 160 ? String(s).slice(0, 157) + '...' : String(s);
+    try {
+        if (t === 'mcq') return a === undefined ? '' : q.options[a];
+        if (t === 'tf') return a === undefined ? '' : (a === 0 ? 'True' : 'False');
+        if (t === 'passage') return (q.questions || []).map((sq, si) => { const v = studentAnswers[`${qi}-${si}`]; return v === undefined ? '-' : sq.options[v]; }).join(' | ');
+        if (t === 'reorder') return a.map(i => q.items[i]).join(' > ');
+        if (t === 'match' || t === 'link') return q.pairs.map((p, i) => (a || {})[i] === undefined ? null : `${p.left} = ${q.pairs[a[i]].right}`).filter(Boolean).join('; ');
+        if (t === 'multi') return a.map(i => q.options[i]).join(', ');
+        if (t === 'fill') return q.items.map((s, si) => qxParse(s).answers.map((_, bi) => a[`${si}-${bi}`] || '_').join(', ')).join(' | ');
+        if (t === 'short') return a || '';
+        if (t === 'build') return q.sentences.map((s, si) => QX.build._built(qi, q, si)).join(' | ');
+        if (t === 'sort') { const flat = QX.sort._flat(q); return flat.map((it, k) => a[k] === undefined ? null : `${it.t} > ${q.groups[a[k]].name}`).filter(Boolean).join('; '); }
+        if (t === 'dictation') return q.sentences.map((_, si) => a[si] || '_').join(' | ');
+        if (t === 'mistake') return q.items.map((s, si) => { const tk = qxTokens(s).tokens; return (a[si] || []).map(i => tk[i]).join(' ') || '_'; }).join(' | ');
+    } catch (e) { }
+    return '';
+}
+function lxSnapshot() {
+    const ex = activeExerciseData; if (!ex) return null;
+    const st = getSubmittingStudent();
+    const qs = ex.questions.map((q, qi) => {
+        const done = lxAnswered(q, qi), sc = lxScore(q, qi);
+        return { a: lxText(q, qi), d: done ? 1 : 0, s: sc.score, t: sc.total };
+    });
+    return { t: 'ex_prog', sid: liveExS.sid, nm: st ? st.name : '', sub: exSubmitted ? 1 : 0, qs };
+}
+
+// ---------- student side ----------
+const liveExS = { sid: null, timer: null, last: '', parent: null, next: null };
+
+window.liveExStudentOp = function (op) {
+    if (op.t === 'ex_start') { if (liveExS.sid !== op.sid) startStudentLive(op); return; }
+    if (op.sid !== liveExS.sid) return;
+    if (op.t === 'ex_end') endStudentLive(true);
+    else if (op.t === 'ex_reveal') {
+        exSettings.showResult = 'answers';
+        if (exSubmitted) renderReview();
+        const b = document.getElementById('live-ex-banner-text');
+        if (b) b.textContent = 'Your teacher is showing the correct answers.';
+    }
+};
+
+function startStudentLive(op) {
+    if (liveExS.sid) endStudentLive(false);
+    const ex = op.ex;
+    liveExS.sid = op.sid; liveExS.last = '';
+    globalExercises = globalExercises.filter(e => String(e.id) !== String(ex.id)).concat([ex]);
+    const view = document.getElementById('active-exercise-view');
+    liveExS.parent = view.parentNode; liveExS.next = view.nextSibling;
+    const slot = document.getElementById('student-live-ex-slot');
+    slot.classList.remove('hidden');
+    slot.appendChild(view);
+    document.getElementById('live-ex-banner-text').textContent = 'Live exercise: your teacher can see your answers as you work.';
+    window.liveExActive = true;
+    liveOpening = true;
+    try { window.openExercise(ex.id); } finally { liveOpening = false; }
+    document.getElementById('exercise-back-btn').classList.add('hidden');
+    window.switchStudentTab('board');
+    view.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    clearInterval(liveExS.timer);
+    liveExS.timer = setInterval(sendLiveProgress, 1200);
+    setTimeout(sendLiveProgress, 400);
+}
+
+function sendLiveProgress() {
+    if (!window.liveExActive || !studentBoard) return;
+    const snap = lxSnapshot(); if (!snap) return;
+    const j = JSON.stringify(snap);
+    if (j === liveExS.last) return;
+    liveExS.last = j;
+    studentBoard.sendInbox(snap);
+}
+
+function endStudentLive(notify) {
+    clearInterval(liveExS.timer);
+    if (window.liveExActive) sendLiveProgress();
+    const view = document.getElementById('active-exercise-view');
+    if (liveExS.parent) liveExS.parent.insertBefore(view, liveExS.next);
+    view.classList.add('hidden');
+    document.getElementById('student-live-ex-slot').classList.add('hidden');
+    document.getElementById('exercise-back-btn').classList.remove('hidden');
+    window.liveExActive = false; liveExS.sid = null;
+    if (notify && studentBoard) studentBoard.showToast('The live exercise has ended.');
+}
+window.liveExStudentLeave = function () { if (window.liveExActive) endStudentLive(false); };
+
+// ---------- teacher side ----------
+const liveExT = { active: false, sid: null, ex: null, startOp: null, students: {}, open: {} };
+
+window.liveExRefreshList = function () {
+    const sel = document.getElementById('live-ex-select'); if (!sel) return;
+    const cls = document.getElementById('board-class-select').value;
+    const cur = sel.value;
+    const list = cls ? adminExercises.filter(e => e.target_class === cls) : [];
+    sel.innerHTML = list.length
+        ? '<option value="">-- Choose an exercise --</option>' + list.map(e => `<option value="${escapeHtml(e.id)}">${escapeHtml(e.title)} (${(e.questions || []).length} q)</option>`).join('')
+        : `<option value="">${cls ? 'No exercises for this class yet' : 'Choose a class first'}</option>`;
+    if (cur && list.some(e => String(e.id) === cur)) sel.value = cur;
+};
+
+window.liveExStart = function () {
+    if (!teacherBoard || !teacherBoard.tr) return alert('Press "Go live" first, so students are connected.');
+    const id = document.getElementById('live-ex-select').value;
+    const ex = adminExercises.find(e => String(e.id) === id);
+    if (!ex) return alert('Choose an exercise first.');
+    if (liveExT.active && !confirm('Replace the exercise that is running now?')) return;
+    const settings = { ...(ex.settings || {}), showResult: 'score' };   // answers are revealed by the teacher
+    const op = { t: 'ex_start', sid: newId(), ex: { id: ex.id, title: ex.title, target_class: ex.target_class, questions: ex.questions, settings } };
+    Object.assign(liveExT, { active: true, sid: op.sid, ex: op.ex, startOp: op, students: {}, open: {} });
+    teacherBoard.send(op);
+    const rb = document.getElementById('live-ex-reveal-btn'); rb.textContent = 'Show answers'; rb.disabled = false;
+    renderLiveEx();
+};
+window.liveExEnd = function () {
+    if (!liveExT.active) return;
+    if (!confirm('End the exercise for all students? Unfinished answers will be lost.')) return;
+    teacherBoard.send({ t: 'ex_end', sid: liveExT.sid });
+    liveExT.active = false; liveExT.startOp = null;
+    renderLiveEx();
+};
+window.liveExReveal = function () {
+    if (!liveExT.active) return;
+    teacherBoard.send({ t: 'ex_reveal', sid: liveExT.sid });
+    const b = document.getElementById('live-ex-reveal-btn'); b.textContent = 'Answers shown'; b.disabled = true;
+};
+window.liveExTeacherOp = function (op) {
+    if (!liveExT.active || op.r !== 's' || op.t !== 'ex_prog' || op.sid !== liveExT.sid) return;
+    liveExT.students[op.f] = { nm: op.nm || 'Student (choosing name...)', sub: op.sub, qs: op.qs, at: Date.now() };
+    clearTimeout(liveExT.rt); liveExT.rt = setTimeout(renderLiveEx, 150);
+};
+window.liveExToggle = function (id) { liveExT.open[id] = !liveExT.open[id]; renderLiveEx(); };
+
+function renderLiveEx() {
+    const setup = document.getElementById('live-ex-setup'), run = document.getElementById('live-ex-running');
+    if (!setup) return;
+    setup.classList.toggle('hidden', liveExT.active);
+    run.classList.toggle('hidden', !liveExT.active);
+    if (!liveExT.active) return;
+    const ex = liveExT.ex, n = ex.questions.length;
+    const rows = Object.entries(liveExT.students).sort((a, b) => a[1].nm.localeCompare(b[1].nm));
+    const submitted = rows.filter(([, s]) => s.sub).length;
+    document.getElementById('live-ex-title').textContent = ex.title;
+    document.getElementById('live-ex-stats').textContent = `${rows.length} working, ${submitted} submitted`;
+    const labels = Q_TYPE_LABELS;
+    document.getElementById('live-ex-students').innerHTML = rows.length ? rows.map(([id, s]) => {
+        const answered = s.qs.filter(q => q.d).length;
+        const sc = s.qs.reduce((x, q) => x + q.s, 0), tot = s.qs.reduce((x, q) => x + q.t, 0);
+        const pct = Math.round(answered / n * 100);
+        const open = !!liveExT.open[id];
+        const detail = open ? `<div class="px-3 pb-3 space-y-1.5">` + s.qs.map((q, i) => {
+            const qq = ex.questions[i], ty = qq.type || 'mcq';
+            const title = qq.text || (qq.passage ? qq.passage.slice(0, 50) + '...' : '');
+            const mark = !q.d ? '<span class="text-gray-400">&#8226;</span>' : (q.s === q.t ? '<span class="text-green-600 font-bold">&#10004;</span>' : (q.s > 0 ? '<span class="text-amber-600 font-bold">&#189;</span>' : '<span class="text-red-600 font-bold">&#10008;</span>'));
+            return `<div class="text-xs border-l-2 ${!q.d ? 'border-gray-200' : q.s === q.t ? 'border-green-400' : 'border-red-400'} pl-2">
+                <div class="text-gray-500">${mark} Q${i + 1} &middot; ${escapeHtml(labels[ty] || 'Multiple choice')} &middot; ${escapeHtml(title)}</div>
+                <div class="text-gray-800 break-words">${q.a ? escapeHtml(q.a) : '<span class="text-gray-400">no answer yet</span>'}</div></div>`;
+        }).join('') + `</div>` : '';
+        return `<div class="border border-gray-200 rounded-lg bg-white">
+            <button type="button" onclick="window.liveExToggle('${id}')" class="w-full text-left px-3 py-2">
+                <div class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-gray-900 truncate">${escapeHtml(s.nm)}</span>
+                    <span class="text-xs font-semibold ${s.sub ? 'text-green-700' : 'text-gray-500'}">${s.sub ? 'Submitted ' + sc + '/' + tot : answered + '/' + n + ' answered'}</span></div>
+                <div class="h-1.5 bg-gray-100 rounded mt-1.5"><div class="h-1.5 rounded ${s.sub ? 'bg-green-500' : 'bg-indigo-500'}" style="width:${pct}%"></div></div>
+            </button>${detail}</div>`;
+    }).join('') : '<p class="text-sm text-gray-500">Waiting for students to open the exercise...</p>';
+}
 
     </script>
 </body>
