@@ -3116,7 +3116,8 @@ class BoardTransport {
             const st = ch.presenceState();
             this.h.onpresence(Object.values(st).flat().map(m => ({ id: m.id, role: m.role })));
         });
-        ch.subscribe(async status => {
+        ch.subscribe(async (status, err) => {
+            bdLog(this.key.slice(-12) + ' ' + status + (this.dead ? ' (old)' : '') + (err ? ' ' + (err.message || err) : ''));
             if (this.dead) return;
             if (status === 'SUBSCRIBED') {
                 try { await ch.track({ id: this.id, role: this.role }); } catch (e) { }
@@ -3149,7 +3150,7 @@ class BoardTransport {
     }
     close() {
         this.dead = true;
-        if (this.kind === 'supabase') { try { supabaseClient.removeChannel(this.ch); } catch (e) { } }
+        if (this.kind === 'supabase') { const ch = this.ch; bdEnqueue(() => Promise.race([Promise.resolve(supabaseClient.removeChannel(ch)).catch(() => { }), new Promise(r => setTimeout(r, 1500))])); }
         else { if (this.unload) { this.unload(); window.removeEventListener('pagehide', this.unload); } this.bc.close(); }
     }
 }
@@ -3163,8 +3164,21 @@ function boardKey(cls) {
 }
 
 // supabase-js hands back the OLD channel when the same topic is re-created before it has finished closing
+let bdQueue = Promise.resolve();
+function bdEnqueue(fn) { bdQueue = bdQueue.then(fn, fn).catch(() => { }); return bdQueue; }
+window.__bdLog = [];
+function bdLog(m) { window.__bdLog.push(new Date().toTimeString().slice(3, 8) + ' ' + m); if (window.__bdLog.length > 12) window.__bdLog.shift(); }
+// a permanent channel keeps the realtime socket open while board channels are swapped (removing the last channel closes the socket)
+function bdKeepAlive() {
+    try {
+        if (!(isDbConnected && supabaseClient && supabaseClient.getChannels)) return;
+        if (supabaseClient.getChannels().some(c => c.topic === 'realtime:board-keepalive')) return;
+        supabaseClient.channel('board-keepalive').subscribe(st => bdLog('keepalive ' + st));
+    } catch (e) { bdLog('keepalive err ' + e.message); }
+}
 async function bdFreeChannels(names) {
     if (!(isDbConnected && supabaseClient && supabaseClient.getChannels)) return;
+    bdKeepAlive();
     for (const n of names) {
         const topic = 'realtime:board:' + n;
         for (const c of supabaseClient.getChannels().filter(c => c.topic === topic)) {
@@ -3390,6 +3404,7 @@ class Board {
         }
         const dg = this.mount.querySelector('.bd-diag');
         if (dg) dg.textContent = (this.chanKey ? this.chanKey + ' \u00B7 ' : '') + (this.tr ? this.tr.kind : 'offline') + ' \u00B7 ' + this.status;
+        if (dg) { dg.classList.remove('hidden', 'sm:inline'); dg.title = window.__bdLog.join('\n'); dg.textContent += ' \u00B7 ' + (window.__bdLog.slice(-3).join(' | ')); }
         pill.className = 'bd-pill inline-flex items-center gap-1.5 text-xs font-semibold rounded-full px-2.5 py-1 ' + cls;
         dot.className = 'bd-dot w-2 h-2 rounded-full ' + dc;
         txt.textContent = text;
@@ -3574,7 +3589,7 @@ class Board {
         this.wantLive = true; this.connAt = Date.now(); this.chanKey = key;
         const tok = this.joinTok = (this.joinTok || 0) + 1;
         const fail = e => { console.error('Board connection failed', e); this.status = 'error'; this.refreshUi(); clearTimeout(this.retryT); this.retryT = setTimeout(() => { if (this.wantLive && this.status !== 'connected' && this.cls) this.join(this.cls); }, 3000); };
-        bdFreeChannels([key, key + ':inbox']).then(() => {
+        bdEnqueue(() => bdFreeChannels([key, key + ':inbox'])).then(() => {
             if (tok !== this.joinTok || !this.wantLive) return;
             try {
                 this.inbox = new BoardTransport(key + ':inbox', this.id, this.isT ? 'teacher' : 'student', { onop: op => this.onInbox(op), onpresence: () => { }, onstatus: () => { } });
