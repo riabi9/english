@@ -3159,6 +3159,18 @@ function boardKey(cls) {
     return 'class-' + (name.replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24) || 'x') + '-' + h.toString(36);
 }
 
+// supabase-js hands back the OLD channel when the same topic is re-created before it has finished closing
+async function bdFreeChannels(names) {
+    if (!(isDbConnected && supabaseClient && supabaseClient.getChannels)) return;
+    for (const n of names) {
+        const topic = 'realtime:board:' + n;
+        for (const c of supabaseClient.getChannels().filter(c => c.topic === topic)) {
+            try { await Promise.race([supabaseClient.removeChannel(c), new Promise(r => setTimeout(r, 1500))]); } catch (e) { }
+            try { const rt = supabaseClient.realtime; if (rt && Array.isArray(rt.channels)) { const i = rt.channels.indexOf(c); if (i >= 0) rt.channels.splice(i, 1); } } catch (e) { }
+        }
+    }
+}
+
 // ----- the board -----
 class Board {
     constructor(mount, mode, opts = {}) {
@@ -3374,7 +3386,7 @@ class Board {
             else text = 'Connecting...';
         }
         const dg = this.mount.querySelector('.bd-diag');
-        if (dg) dg.textContent = (this.key ? this.key + ' \u00B7 ' : '') + (this.tr ? this.tr.kind : 'offline') + ' \u00B7 ' + this.status;
+        if (dg) dg.textContent = (this.chanKey ? this.chanKey + ' \u00B7 ' : '') + (this.tr ? this.tr.kind : 'offline') + ' \u00B7 ' + this.status;
         pill.className = 'bd-pill inline-flex items-center gap-1.5 text-xs font-semibold rounded-full px-2.5 py-1 ' + cls;
         dot.className = 'bd-dot w-2 h-2 rounded-full ' + dc;
         txt.textContent = text;
@@ -3556,30 +3568,38 @@ class Board {
         this.status = 'connecting'; this.online = [];
         this.refreshUi(); this.fit(); this.schedule();
         const key = boardKey(cls);
-        this.inbox = new BoardTransport(key + ':inbox', this.id, this.isT ? 'teacher' : 'student', { onop: op => this.onInbox(op), onpresence: () => { }, onstatus: () => { } });
-        this.wantLive = true; this.connAt = Date.now(); this.key = key;
-        this.tr = new BoardTransport(key, this.id, this.isT ? 'teacher' : 'student', {
-            onop: op => this.onRemote(op),
-            onpresence: list => {
-                const had = this.teacherOnline();
-                const known = new Set(this.online.map(p => p.id));
-                this.online = list;
-                if (!this.isT && !had && this.teacherOnline()) this.send({ t: 'hello' });
-                if (this.isT && list.some(p => p.role === 'student' && !known.has(p.id)) && !this.syncT) this.syncT = setTimeout(() => { this.syncT = null; this.sendSync(); }, 700);
-                this.refreshUi();
-            },
-            onstatus: s => {
-                this.status = s;
-                if (s === 'connected') {
-                    if (this.isT) this.sendSync();
-                    else this.send({ t: 'hello' });
-                } else if ((s === 'error' || s === 'closed') && this.wantLive) {
-                    clearTimeout(this.retryT);
-                    this.retryT = setTimeout(() => { if (this.wantLive && this.status !== 'connected' && this.cls) this.join(this.cls); }, 3000);
-                }
-                this.refreshUi();
-            }
-        });
+        this.wantLive = true; this.connAt = Date.now(); this.chanKey = key;
+        const tok = this.joinTok = (this.joinTok || 0) + 1;
+        const fail = e => { console.error('Board connection failed', e); this.status = 'error'; this.refreshUi(); clearTimeout(this.retryT); this.retryT = setTimeout(() => { if (this.wantLive && this.status !== 'connected' && this.cls) this.join(this.cls); }, 3000); };
+        bdFreeChannels([key, key + ':inbox']).then(() => {
+            if (tok !== this.joinTok || !this.wantLive) return;
+            try {
+                this.inbox = new BoardTransport(key + ':inbox', this.id, this.isT ? 'teacher' : 'student', { onop: op => this.onInbox(op), onpresence: () => { }, onstatus: () => { } });
+                this.tr = new BoardTransport(key, this.id, this.isT ? 'teacher' : 'student', {
+                    onop: op => this.onRemote(op),
+                    onpresence: list => {
+                        const had = this.teacherOnline();
+                        const known = new Set(this.online.map(p => p.id));
+                        this.online = list;
+                        if (!this.isT && !had && this.teacherOnline()) this.send({ t: 'hello' });
+                        if (this.isT && list.some(p => p.role === 'student' && !known.has(p.id)) && !this.syncT) this.syncT = setTimeout(() => { this.syncT = null; this.sendSync(); }, 700);
+                        this.refreshUi();
+                    },
+                    onstatus: s => {
+                        this.status = s;
+                        if (s === 'connected') {
+                            if (this.isT) this.sendSync();
+                            else this.send({ t: 'hello' });
+                        } else if ((s === 'error' || s === 'closed') && this.wantLive) {
+                            clearTimeout(this.retryT);
+                            this.retryT = setTimeout(() => { if (this.wantLive && this.status !== 'connected' && this.cls) this.join(this.cls); }, 3000);
+                        }
+                        this.refreshUi();
+                    }
+                });
+            } catch (e) { fail(e); }
+            this.refreshUi();
+        }).catch(fail);
         this.startWatchdog();
     }
     startWatchdog() {
@@ -3598,7 +3618,7 @@ class Board {
     onInbox(op) { if (this.isT && op && op.r === 's' && window.liveExTeacherOp) window.liveExTeacherOp(op); }
     sendInbox(op) { if (this.inbox) this.inbox.send({ ...op, f: this.id, r: this.isT ? 't' : 's' }); }
     leave(silent) {
-        this.wantLive = false; clearTimeout(this.retryT); clearInterval(this.wd);
+        this.wantLive = false; this.joinTok = (this.joinTok || 0) + 1; clearTimeout(this.retryT); clearInterval(this.wd);
         if (this.inbox) { this.inbox.close(); this.inbox = null; }
         if (this.tr) { this.tr.close(); this.tr = null; }
         this.status = 'offline'; this.online = [];
@@ -4135,7 +4155,7 @@ function ensureTeacherBoard() {
 }
 function updateGoLiveButton() {
     const b = document.getElementById('board-live-btn'); if (!b) return;
-    const live = teacherBoard && teacherBoard.tr;
+    const live = teacherBoard && teacherBoard.wantLive;
     b.textContent = live ? 'End live session' : 'Go live';
     b.className = live ? 'px-4 py-2 text-sm font-semibold rounded-lg bg-red-600 hover:bg-red-700 text-white'
         : 'px-4 py-2 text-sm font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white';
@@ -4156,7 +4176,7 @@ window.adminBoardOpen = function () {
 };
 window.adminBoardClassChange = function () {
     const sel = document.getElementById('board-class-select');
-    if (teacherBoard && teacherBoard.tr && teacherBoard.cls && teacherBoard.cls !== sel.value) {
+    if (teacherBoard && teacherBoard.wantLive && teacherBoard.cls && teacherBoard.cls !== sel.value) {
         if (!confirm('Changing class will end the current live session. Continue?')) { sel.value = teacherBoard.cls; return; }
         teacherBoard.leave(true);
     }
@@ -4166,7 +4186,7 @@ window.adminBoardToggleLive = function () {
     const sel = document.getElementById('board-class-select');
     if (!sel.value) { alert('Choose a class first.'); return; }
     const b = ensureTeacherBoard();
-    if (b.tr) { b.leave(); }
+    if (b.wantLive) { b.leave(); }
     else {
         b.cls = sel.value; b.join(sel.value);
     }
@@ -4179,7 +4199,7 @@ let studentBoard = null;
 function setLiveDot(on) { document.getElementById('board-live-dot').classList.toggle('hidden', !on); }
 window.studentBoardConnect = function (cls) {
     if (!studentBoard) studentBoard = new Board(document.getElementById('student-board-mount'), 'student', { onLive: on => setLiveDot(on) });
-    if (studentBoard.cls !== cls || !studentBoard.tr) studentBoard.join(cls);
+    if (studentBoard.cls !== cls || !studentBoard.wantLive) studentBoard.join(cls);
 };
 window.studentBoardDisconnect = function () { if (window.liveExStudentLeave) liveExStudentLeave(); if (studentBoard) { studentBoard.leave(); setLiveDot(false); } };
 window.studentBoardShown = function () { if (studentBoard) setTimeout(() => { studentBoard.fit(); studentBoard.schedule(); }, 0); };
