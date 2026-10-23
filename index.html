@@ -3234,6 +3234,7 @@ class Board {
                 <div class="flex items-center gap-2">
                     ${T ? `<button type="button" class="bd-text-btn" data-act="prev">&larr;</button>` : ''}
                     <span class="bd-page-label font-medium text-gray-700">Page 1 / 1</span>
+                    <span class="bd-diag text-[10px] text-gray-300 hidden sm:inline"></span>
                     ${T ? `<button type="button" class="bd-text-btn" data-act="next">&rarr;</button>
                            <button type="button" class="bd-text-btn" data-act="addpage">+ New page</button>
                            <button type="button" class="bd-text-btn bd-danger-t" data-act="delpage">Delete page</button>` : `<span class="text-xs text-gray-400">follows your teacher</span>`}
@@ -3372,6 +3373,8 @@ class Board {
             else if (this.status === 'error') { cls = 'bg-amber-50 text-amber-700'; dc = 'bg-amber-500'; text = 'Connection problem'; }
             else text = 'Connecting...';
         }
+        const dg = this.mount.querySelector('.bd-diag');
+        if (dg) dg.textContent = (this.key ? this.key + ' \u00B7 ' : '') + (this.tr ? this.tr.kind : 'offline') + ' \u00B7 ' + this.status;
         pill.className = 'bd-pill inline-flex items-center gap-1.5 text-xs font-semibold rounded-full px-2.5 py-1 ' + cls;
         dot.className = 'bd-dot w-2 h-2 rounded-full ' + dc;
         txt.textContent = text;
@@ -3547,19 +3550,22 @@ class Board {
         this.leave(true);
         this.cls = cls;
         this.hasState = this.isT;
-        if (this.isT) this.load();
+        if (this.isT) { if (this._loadedFor !== cls) { this.load(); this._loadedFor = cls; } }
         else { this.pages = [{ objs: [], bg: 'white' }]; this.cur = 0; this.allow = false; }
         this.hist = []; this.redoS = [];
         this.status = 'connecting'; this.online = [];
         this.refreshUi(); this.fit(); this.schedule();
         const key = boardKey(cls);
         this.inbox = new BoardTransport(key + ':inbox', this.id, this.isT ? 'teacher' : 'student', { onop: op => this.onInbox(op), onpresence: () => { }, onstatus: () => { } });
+        this.wantLive = true; this.connAt = Date.now(); this.key = key;
         this.tr = new BoardTransport(key, this.id, this.isT ? 'teacher' : 'student', {
             onop: op => this.onRemote(op),
             onpresence: list => {
                 const had = this.teacherOnline();
+                const known = new Set(this.online.map(p => p.id));
                 this.online = list;
                 if (!this.isT && !had && this.teacherOnline()) this.send({ t: 'hello' });
+                if (this.isT && list.some(p => p.role === 'student' && !known.has(p.id)) && !this.syncT) this.syncT = setTimeout(() => { this.syncT = null; this.sendSync(); }, 700);
                 this.refreshUi();
             },
             onstatus: s => {
@@ -3567,14 +3573,32 @@ class Board {
                 if (s === 'connected') {
                     if (this.isT) this.sendSync();
                     else this.send({ t: 'hello' });
+                } else if ((s === 'error' || s === 'closed') && this.wantLive) {
+                    clearTimeout(this.retryT);
+                    this.retryT = setTimeout(() => { if (this.wantLive && this.status !== 'connected' && this.cls) this.join(this.cls); }, 3000);
                 }
                 this.refreshUi();
             }
         });
+        this.startWatchdog();
+    }
+    startWatchdog() {
+        clearInterval(this.wd);
+        this.wd = setInterval(() => {
+            if (!this.wantLive || !this.cls) return;
+            if (this.status === 'connecting' && Date.now() - this.connAt > 12000) { this.join(this.cls); return; }
+            if (!this.isT && this.status === 'connected' && !this.teacherOnline()) this.send({ t: 'hello' });
+        }, 5000);
+        if (!this._vis) {
+            this._vis = () => { if (!document.hidden && this.wantLive && this.cls && this.status !== 'connected') this.join(this.cls); };
+            document.addEventListener('visibilitychange', this._vis);
+            window.addEventListener('online', this._vis);
+        }
     }
     onInbox(op) { if (this.isT && op && op.r === 's' && window.liveExTeacherOp) window.liveExTeacherOp(op); }
     sendInbox(op) { if (this.inbox) this.inbox.send({ ...op, f: this.id, r: this.isT ? 't' : 's' }); }
     leave(silent) {
+        this.wantLive = false; clearTimeout(this.retryT); clearInterval(this.wd);
         if (this.inbox) { this.inbox.close(); this.inbox = null; }
         if (this.tr) { this.tr.close(); this.tr = null; }
         this.status = 'offline'; this.online = [];
