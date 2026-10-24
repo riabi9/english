@@ -3099,11 +3099,14 @@ function bdInPoly(x, y, pts) {
 }
 
 // ----- transport: Supabase Realtime broadcast, or BroadcastChannel (same browser) when offline -----
+// Optional: your own relay (relay.py) instead of Supabase realtime. Example: 'wss://my-tunnel.trycloudflare.com'. Leave '' to use Supabase.
+const BOARD_RELAY_URL = 'wss://mom-suzuki-straight-brief.trycloudflare.com';
 class BoardTransport {
     constructor(key, id, role, h) {
         this.key = key; this.id = id; this.role = role; this.h = h;
         this.peers = {};
-        if (isDbConnected && supabaseClient && supabaseClient.channel) this.openSupabase();
+        if (BOARD_RELAY_URL) this.openRelay();
+        else if (isDbConnected && supabaseClient && supabaseClient.channel) this.openSupabase();
         else this.openLocal();
     }
     openSupabase() {
@@ -3126,6 +3129,22 @@ class BoardTransport {
             else if (status === 'CLOSED') this.h.onstatus('closed');
         });
     }
+    openRelay() {
+        this.kind = 'relay';
+        const url = BOARD_RELAY_URL.replace(/\/+$/, '') + '/?topic=' + encodeURIComponent(this.key) + '&id=' + encodeURIComponent(this.id) + '&role=' + this.role;
+        let ws;
+        try { ws = new WebSocket(url); } catch (e) { setTimeout(() => this.h.onstatus('error'), 0); return; }
+        this.ws = ws;
+        ws.onopen = () => { if (!this.dead) { bdLog('relay open'); this.h.onstatus('connected'); } };
+        ws.onclose = ev => { bdLog('relay closed ' + ev.code); if (!this.dead) this.h.onstatus('closed'); };
+        ws.onerror = () => { if (!this.dead) this.h.onstatus('error'); };
+        ws.onmessage = ev => {
+            if (this.dead) return;
+            let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
+            if (m && m._sys === 'presence') this.h.onpresence(m.list);
+            else this.h.onop(m);
+        };
+    }
     openLocal() {
         this.kind = 'local';
         this.bc = new BroadcastChannel('portal-board:' + this.key);
@@ -3145,11 +3164,13 @@ class BoardTransport {
     }
     list() { return [{ id: this.id, role: this.role }, ...Object.entries(this.peers).map(([id, role]) => ({ id, role }))]; }
     send(payload) {
-        if (this.kind === 'supabase') this.ch.send({ type: 'broadcast', event: 'op', payload });
+        if (this.kind === 'relay') { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(payload)); }
+        else if (this.kind === 'supabase') this.ch.send({ type: 'broadcast', event: 'op', payload });
         else this.bc.postMessage(payload);
     }
     close() {
         this.dead = true;
+        if (this.kind === 'relay') { try { this.ws.close(); } catch (e) { } return; }
         if (this.kind === 'supabase') { const ch = this.ch; bdEnqueue(() => Promise.race([Promise.resolve(supabaseClient.removeChannel(ch)).catch(() => { }), new Promise(r => setTimeout(r, 1500))])); }
         else { if (this.unload) { this.unload(); window.removeEventListener('pagehide', this.unload); } this.bc.close(); }
     }
@@ -3177,7 +3198,7 @@ function bdKeepAlive() {
     } catch (e) { bdLog('keepalive err ' + e.message); }
 }
 async function bdFreeChannels(names) {
-    if (!(isDbConnected && supabaseClient && supabaseClient.getChannels)) return;
+    if (BOARD_RELAY_URL || !(isDbConnected && supabaseClient && supabaseClient.getChannels)) return;
     bdKeepAlive();
     for (const n of names) {
         const topic = 'realtime:board:' + n;
