@@ -3099,8 +3099,18 @@ function bdInPoly(x, y, pts) {
 }
 
 // ----- transport: Supabase Realtime broadcast, or BroadcastChannel (same browser) when offline -----
-// Optional: your own relay (relay.py) instead of Supabase realtime. Example: 'wss://my-tunnel.trycloudflare.com'. Leave '' to use Supabase.
-const BOARD_RELAY_URL = 'wss://mom-suzuki-straight-brief.trycloudflare.com';
+// Your own relay (relay.py). The start-board script publishes its current address to the portal_relay table; the page reads it on every connect.
+// If the table is empty (server off) the board falls back to Supabase realtime.
+let BOARD_RELAY_URL = '';
+async function bdResolveRelay() {
+    try {
+        if (!(isDbConnected && supabaseClient && supabaseClient.from)) return;
+        const r = await Promise.race([supabaseClient.from('portal_relay').select('url,updated_at').eq('id', 1), new Promise(res => setTimeout(() => res({}), 4000))]);
+        const row = r && r.data && r.data[0];
+        BOARD_RELAY_URL = row && /^wss?:\/\//.test(row.url || '') ? row.url : '';
+        bdLog('relay=' + (BOARD_RELAY_URL ? BOARD_RELAY_URL.replace(/^wss?:\/\//, '').slice(0, 18) : 'none'));
+    } catch (e) { BOARD_RELAY_URL = ''; }
+}
 class BoardTransport {
     constructor(key, id, role, h) {
         this.key = key; this.id = id; this.role = role; this.h = h;
@@ -3618,7 +3628,7 @@ class Board {
         this.wantLive = true; this.connAt = Date.now(); this.chanKey = key;
         const tok = this.joinTok = (this.joinTok || 0) + 1;
         const fail = e => { console.error('Board connection failed', e); this.status = 'error'; this.refreshUi(); clearTimeout(this.retryT); this.retryT = setTimeout(() => { if (this.wantLive && this.status !== 'connected' && this.cls) this.join(this.cls); }, this.backoff()); };
-        bdEnqueue(() => bdFreeChannels([key, key + '-inbox'])).then(() => {
+        bdEnqueue(async () => { await bdResolveRelay(); await bdFreeChannels([key, key + '-inbox']); }).then(() => {
             if (tok !== this.joinTok || !this.wantLive) return;
             try {
                 this.inbox = new BoardTransport(key + '-inbox', this.id, this.isT ? 'teacher' : 'student', { onop: op => this.onInbox(op), onpresence: () => { }, onstatus: () => { } });
