@@ -3560,19 +3560,27 @@ class Board {
         return false;
     }
     sendSync() {
-        const sid = newId();
-        if (this.isT && typeof liveExT !== 'undefined' && liveExT.active && liveExT.startOp) this.send(liveExT.startOp);
-        this.send({ t: 'sync', sid, cur: this.cur, allow: this.allow, pages: this.pages.map(p => ({ bg: p.bg })) });
+        // paced: the realtime server drops channels that exceed its bytes/second limit, so send small pieces slowly
+        clearTimeout(this.syncQT);
+        const sid = newId(), q = [];
+        if (this.isT && typeof liveExT !== 'undefined' && liveExT.active && liveExT.startOp) q.push(liveExT.startOp);
+        q.push({ t: 'sync', sid, cur: this.cur, allow: this.allow, pages: this.pages.map(p => ({ bg: p.bg })) });
         this.pages.forEach((pg, p) => {
             let chunk = [], size = 0;
-            const flush = () => { if (chunk.length) { this.send({ t: 'objs', sid, p, objs: chunk }); chunk = []; size = 0; } };
+            const flush = () => { if (chunk.length) { q.push({ t: 'objs', sid, p, objs: chunk }); chunk = []; size = 0; } };
             for (const o of pg.objs) {
-                const s = JSON.stringify(o).length;
-                if (size + s > 100000) flush();
-                chunk.push(o); size += s;
+                const sz = JSON.stringify(o).length;
+                if (size + sz > 40000) flush();
+                chunk.push(o); size += sz;
             }
             flush();
         });
+        const step = () => {
+            if (!this.tr || !q.length) return;
+            const op = q.shift(); this.send(op);
+            if (q.length) this.syncQT = setTimeout(step, op.t === 'objs' ? 500 : 60);
+        };
+        step();
     }
 
     // ---------- connection ----------
@@ -3588,11 +3596,11 @@ class Board {
         const key = boardKey(cls);
         this.wantLive = true; this.connAt = Date.now(); this.chanKey = key;
         const tok = this.joinTok = (this.joinTok || 0) + 1;
-        const fail = e => { console.error('Board connection failed', e); this.status = 'error'; this.refreshUi(); clearTimeout(this.retryT); this.retryT = setTimeout(() => { if (this.wantLive && this.status !== 'connected' && this.cls) this.join(this.cls); }, 3000); };
-        bdEnqueue(() => bdFreeChannels([key, key + ':inbox'])).then(() => {
+        const fail = e => { console.error('Board connection failed', e); this.status = 'error'; this.refreshUi(); clearTimeout(this.retryT); this.retryT = setTimeout(() => { if (this.wantLive && this.status !== 'connected' && this.cls) this.join(this.cls); }, this.backoff()); };
+        bdEnqueue(() => bdFreeChannels([key, key + '-inbox'])).then(() => {
             if (tok !== this.joinTok || !this.wantLive) return;
             try {
-                this.inbox = new BoardTransport(key + ':inbox', this.id, this.isT ? 'teacher' : 'student', { onop: op => this.onInbox(op), onpresence: () => { }, onstatus: () => { } });
+                this.inbox = new BoardTransport(key + '-inbox', this.id, this.isT ? 'teacher' : 'student', { onop: op => this.onInbox(op), onpresence: () => { }, onstatus: () => { } });
                 this.tr = new BoardTransport(key, this.id, this.isT ? 'teacher' : 'student', {
                     onop: op => this.onRemote(op),
                     onpresence: list => {
@@ -3606,11 +3614,12 @@ class Board {
                     onstatus: s => {
                         this.status = s;
                         if (s === 'connected') {
+                            clearTimeout(this.retryT); clearTimeout(this.okT); this.okT = setTimeout(() => { this.fails = 0; }, 8000);
                             if (this.isT) this.sendSync();
                             else this.send({ t: 'hello' });
                         } else if ((s === 'error' || s === 'closed') && this.wantLive) {
                             clearTimeout(this.retryT);
-                            this.retryT = setTimeout(() => { if (this.wantLive && this.status !== 'connected' && this.cls) this.join(this.cls); }, 3000);
+                            this.retryT = setTimeout(() => { if (this.wantLive && this.status !== 'connected' && this.cls) this.join(this.cls); }, this.backoff());
                         }
                         this.refreshUi();
                     }
@@ -3620,6 +3629,7 @@ class Board {
         }).catch(fail);
         this.startWatchdog();
     }
+    backoff() { this.fails = Math.min((this.fails || 0) + 1, 6); return Math.min(2000 * Math.pow(2, this.fails - 1), 30000); }
     startWatchdog() {
         clearInterval(this.wd);
         this.wd = setInterval(() => {
