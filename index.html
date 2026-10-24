@@ -374,8 +374,10 @@
                                 <button type="button" onclick="window.adminAddQuestionBlock('sort')" class="add-q-btn">+ Sorting</button>
                                 <button type="button" onclick="window.adminAddQuestionBlock('mistake')" class="add-q-btn">+ Find the mistake</button>
                                 <button type="button" onclick="window.adminAddQuestionBlock('dictation')" class="add-q-btn">+ Dictation (listening)</button>
+                                <button type="button" onclick="window.adminAddQuestionBlock('dragfill')" class="add-q-btn">+ Fill the gaps (drag &amp; drop)</button>
+                                <button type="button" onclick="window.adminAddQuestionBlock('essay')" class="add-q-btn">+ Written answer (you correct)</button>
                             </div>
-                            <p class="text-xs text-gray-500 mt-2">Scoring: 1 point per multiple-choice or true/false question (and per question inside a passage), 1 point per correct pair in matching/linking, and 1 point for a fully correct reordering. New types: 1 point per blank (fill in the blanks), per sentence (sentence building, find the mistake, dictation), per item (sorting), and 1 point per question for short answer and multiple answers (all correct options must be selected).</p>
+                            <p class="text-xs text-gray-500 mt-2">Scoring: 1 point per multiple-choice or true/false question (and per question inside a passage), 1 point per correct pair in matching/linking, and 1 point for a fully correct reordering. New types: 1 point per blank (fill in the blanks), per sentence (sentence building, find the mistake, dictation), per item (sorting), and 1 point per question for short answer and multiple answers (all correct options must be selected). Fill the gaps (drag &amp; drop) gives 1 point per gap. Written answers are not marked automatically: you correct them and they are not counted in the automatic score.</p>
                         </div>
                         <div id="admin-questions-list" class="space-y-4"></div>
                     </div>
@@ -412,7 +414,7 @@
                             </div>
                             <div id="live-ex-running" class="hidden">
                                 <p id="live-ex-title" class="font-semibold text-indigo-700"></p>
-                                <p id="live-ex-stats" class="text-xs text-gray-500 mb-3"></p>
+                                <p class="text-xs text-gray-500 mb-3"><span id="live-ex-stats"></span> &middot; <button type="button" onclick="window.liveExAll(true)" class="underline">expand all</button> / <button type="button" onclick="window.liveExAll(false)" class="underline">collapse all</button></p>
                                 <div class="flex gap-2 mb-3">
                                     <button id="live-ex-reveal-btn" onclick="window.liveExReveal()" class="flex-1 px-3 py-2 text-sm font-medium rounded-lg border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50">Show answers</button>
                                     <button onclick="window.liveExEnd()" class="flex-1 px-3 py-2 text-sm font-medium rounded-lg bg-red-600 hover:bg-red-700 text-white">End</button>
@@ -1317,11 +1319,17 @@ function mcqOptionsHtml(key, q, shuffle) {
                 total: total
             };
             if (student.id) payload.student_id = student.id;
+            const essays = activeExerciseData.questions.map((q, qi) => q.type === 'essay' ? { q: qi + 1, task: q.text, text: String(studentAnswers[qi] || ''), pts: q.pts || 5 } : null).filter(Boolean);
+            if (essays.length) payload.answers = essays;     // needs portal-setup-v5.sql; skipped if the column is missing
             // exercises that carry settings come from a database that already has the exercise_id column
             if (activeExerciseData.id && activeExerciseData.settings !== undefined) payload.exercise_id = activeExerciseData.id;
 
             submitBtn.disabled = true;      // one click = one saved attempt
             let { error } = await supabaseClient.from('portal_submissions').insert([payload]);
+            if (error && payload.answers && /answers/.test(error.message || '')) {
+                delete payload.answers;
+                ({ error } = await supabaseClient.from('portal_submissions').insert([payload]));
+            }
             if (error && payload.exercise_id && /exercise_id/.test(error.message || '')) {
                 delete payload.exercise_id;     // column not added yet: save the result without it
                 ({ error } = await supabaseClient.from('portal_submissions').insert([payload]));
@@ -1735,7 +1743,7 @@ window.adminAddQuestionBlock = function(type) {
             document.getElementById('admin-ex-title').value = '';
             document.getElementById('admin-questions-list').innerHTML = '';
             window.adminAddQuestionBlock('mcq');
-            writeExerciseSettings({});
+            writeExerciseSettings({ shuffleOptions: true });
             setExerciseFormMode(false);
         }
 
@@ -2120,13 +2128,14 @@ window.adminAddQuestionBlock = function(type) {
 
             const status = document.getElementById('results-status');
             status.textContent = 'Loading...';
-            const cols = 'id, student_id, student_name, class_name, exercise_title, score, total, created_at';
+            const cols = 'id, student_id, student_name, class_name, exercise_title, score, total, created_at, answers';
             const build = c => () => {
                 let q = supabaseClient.from('portal_submissions').select(c).order('created_at', { ascending: false });
                 return cls ? q.eq('class_name', cls) : q;
             };
             let sres = await fetchAllPages(build(cols));
-            if (sres.error) sres = await fetchAllPages(build(cols.replace('student_id, ', '')));   // column not added yet
+            if (sres.error) sres = await fetchAllPages(build(cols.replace(', answers', '')));   // answers column not added yet (portal-setup-v5.sql)
+            if (sres.error) sres = await fetchAllPages(build(cols.replace(', answers', '').replace('student_id, ', '')));   // column not added yet
             if (sres.error) {
                 status.textContent = 'Could not load results.';
                 console.error(sres.error);
@@ -2216,7 +2225,7 @@ window.adminAddQuestionBlock = function(type) {
                         <td class="px-4 py-3 text-sm text-gray-500">${escapeHtml(s.exercise_title)}</td>
                         <td class="px-4 py-3 text-sm font-bold ${pctColor(pct(s.score, s.total))}">${s.score} / ${s.total}</td>
                         <td class="px-4 py-3 text-xs text-gray-500">${fmtDate(s.created_at)}</td>
-                        <td class="px-4 py-3 text-right"><button onclick="window.deleteSubmission('${escapeHtml(String(s.id))}')" class="text-red-500 text-xs hover:underline">Delete</button></td></tr>`).join('') +
+                        <td class="px-4 py-3 text-right whitespace-nowrap">${Array.isArray(s.answers) && s.answers.length ? `<button onclick="window.viewWritten('${escapeHtml(String(s.id))}')" class="text-indigo-600 text-xs font-semibold hover:underline mr-3">Written answers</button>` : ''}<button onclick="window.deleteSubmission('${escapeHtml(String(s.id))}')" class="text-red-500 text-xs hover:underline">Delete</button></td></tr>`).join('') +
                     `</tbody></table>` +
                     (rows.length > shown.length ? `<p class="text-xs text-gray-500 mt-3">Showing the newest ${shown.length} of ${rows.length}. Use Export CSV to get all of them.</p>` : '');
                 return;
@@ -2269,6 +2278,12 @@ window.adminAddQuestionBlock = function(type) {
             document.getElementById('results-status').textContent = msg + ' · ' + document.getElementById('results-status').textContent;
         }
 
+        window.viewWritten = function (id) {
+            const sub = resultsData.subs.find(x => String(x.id) === String(id)); if (!sub) return;
+            const old = document.getElementById('written-modal'); if (old) old.remove();
+            const html = (sub.answers || []).map(a => `<div class="mb-4"><div class="text-xs font-semibold text-gray-500">Q${a.q} &middot; ${escapeHtml(a.task || '')} <span class="font-normal">(${a.pts} pts)</span></div><div class="whitespace-pre-wrap text-sm text-gray-900 bg-gray-50 border border-gray-200 rounded p-3 mt-1">${escapeHtml(a.text || '(empty)')}</div></div>`).join('');
+            document.body.insertAdjacentHTML('beforeend', `<div id="written-modal" class="fixed inset-0 z-[9998] bg-black/50 flex items-center justify-center p-4" onclick="if(event.target===this)this.remove()"><div class="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[85vh] overflow-y-auto p-5"><div class="flex justify-between items-start mb-3"><div><div class="font-bold text-gray-900">${escapeHtml(sub.student_name)}</div><div class="text-xs text-gray-500">${escapeHtml(sub.exercise_title)}</div></div><button onclick="document.getElementById('written-modal').remove()" class="text-2xl leading-none text-gray-400 hover:text-gray-700">&times;</button></div>${html}</div></div>`);
+        };
         window.deleteSubmission = async function(id) {
             const sub = resultsData.subs.find(x => String(x.id) === String(id));
             if (!sub || !confirm(`Delete this result?\n${sub.student_name} - ${sub.exercise_title}: ${sub.score}/${sub.total}`)) return;
@@ -4867,7 +4882,153 @@ window.qxMist = function (qi, si, ti) {
     QX.mistake.render(qi, qxQ(qi));
 };
 
-    </script>
+    
+// ==========================================================================
+// NEW TYPES: essay (written answer the teacher corrects) and dragfill (drag & drop gaps)
+// ==========================================================================
+Object.assign(Q_TYPE_LABELS, { essay: 'Written answer (teacher corrects)', dragfill: 'Fill the gaps (drag & drop)' });
+const qxWords = s => (String(s || '').trim().match(/\S+/g) || []).length;
+
+// ===================== WRITTEN ANSWER (teacher corrects) =====================
+QX.essay = {
+    builder: () => qxInstr('Question / task (e.g. Write a paragraph about your last holiday)') +
+        qxHint('Students write freely. It is not marked automatically: you read it (live, or in the results) and give points and a comment.') +
+        `<textarea class="essay-model w-full px-3 py-2 border rounded bg-white text-sm mb-2" rows="3" placeholder="Model answer or what to look for (optional - shown only to you, and to students if you reveal the answers)"></textarea>
+         <div class="flex flex-wrap gap-4 items-center text-sm text-gray-700">
+            <label class="flex items-center gap-2">Points <input type="number" min="1" max="100" value="5" class="essay-pts w-20 ${qxIn}"></label>
+            <label class="flex items-center gap-2">Minimum words <input type="number" min="0" max="1000" value="0" class="essay-min w-20 ${qxIn}"></label>
+         </div>`,
+    collect(b, n) {
+        const text = b.querySelector('.q-text-input').value.trim();
+        if (!text) return { error: `Question ${n} needs the question or task.` };
+        return { data: { type: 'essay', text, model: b.querySelector('.essay-model').value.trim(), pts: Math.max(1, parseInt(b.querySelector('.essay-pts').value, 10) || 5), minWords: Math.max(0, parseInt(b.querySelector('.essay-min').value, 10) || 0) } };
+    },
+    fill(b, q) {
+        b.querySelector('.q-text-input').value = q.text || ''; b.querySelector('.essay-model').value = q.model || '';
+        b.querySelector('.essay-pts').value = q.pts || 5; b.querySelector('.essay-min').value = q.minWords || 0;
+    },
+    init(qi) { studentAnswers[qi] = ''; QXS[qi] = {}; },
+    render(qi, q) {
+        qxBody(qi).innerHTML = `<textarea rows="7" oninput="window.qxEssay(${qi}, this)" spellcheck="true" placeholder="Write your answer here..." class="qx-in w-full px-4 py-3 border-2 border-gray-300 rounded-lg bg-gray-50 leading-relaxed"></textarea>
+            <div class="flex justify-between text-xs text-gray-500 mt-1"><span id="essay-n-${qi}">0 words${q.minWords ? ' (at least ' + q.minWords + ')' : ''}</span><span>${q.pts || 5} points - your teacher will correct this</span></div>`;
+    },
+    answered: (qi, q) => qxWords(studentAnswers[qi]) >= Math.max(1, q.minWords || 0),
+    score: () => ({ score: 0, total: 0 }),     // corrected by the teacher, not counted in the automatic score
+    live: qi => String(studentAnswers[qi] || ''),
+    showGrade(qi, q) {
+        const g = QXS[qi] && QXS[qi].grade;
+        const el = qxBody(qi) && qxBody(qi).querySelector('.qx-in'); if (el) el.readOnly = true;
+        let html = g ? `<strong>Teacher's correction: ${g.pts}/${q.pts || 5}</strong>${g.cm ? '<div class="mt-1 whitespace-pre-wrap">' + escapeHtml(g.cm) + '</div>' : ''}` : 'Your teacher will read and correct this answer.';
+        if (exSettings.showResult === 'answers' && q.model) html += '<div class="mt-2 pt-2 border-t border-current/20"><b>Model answer:</b><div class="whitespace-pre-wrap">' + escapeHtml(q.model) + '</div></div>';
+        setFeedback(qi, !!g && g.pts >= (q.pts || 5) / 2, html);
+        const fb = document.getElementById('fb-' + qi); if (fb && !g) fb.className = 'mt-3 text-sm rounded-lg p-3 border bg-indigo-50 text-indigo-800 border-indigo-200';
+    },
+    review(qi, q) { QXS[qi] = QXS[qi] || {}; QXS[qi].rev = true; QX.essay.showGrade(qi, q); }
+};
+window.qxEssay = (qi, el) => {
+    studentAnswers[qi] = el.value;
+    const n = document.getElementById('essay-n-' + qi), q = qxQ(qi);
+    if (n) n.textContent = qxWords(el.value) + ' words' + (q.minWords ? ' (at least ' + q.minWords + ')' : '');
+};
+
+// ===================== FILL THE GAPS - DRAG & DROP =====================
+QX.dragfill = {
+    builder: () => qxInstr('Instruction (e.g. Drag each word into the right gap)') +
+        qxHint('Write the text and put each missing word in [square brackets], e.g. <b>She [goes] to school and [eats] lunch.</b> The words become draggable chips (shuffled). Several lines are fine.') +
+        `<textarea class="dg-text w-full px-3 py-2 border rounded bg-white text-sm mb-2" rows="5" placeholder="Yesterday I [went] to the market and [bought] some apples."></textarea>
+         <textarea class="dg-extra w-full px-3 py-2 border rounded bg-white text-sm" rows="2" placeholder="Extra wrong words to confuse (optional, one per line)"></textarea>`,
+    collect(b, n) {
+        const text = b.querySelector('.dg-text').value.trim();
+        const p = qxParse(text);
+        if (!p.answers.length || p.answers.some(a => !a.length)) return { error: `Question ${n} needs a text with at least one [gap].` };
+        return { data: { type: 'dragfill', text: b.querySelector('.q-text-input').value.trim() || 'Drag each word into the right gap.', body: text, extra: b.querySelector('.dg-extra').value.split('\n').map(s => s.trim()).filter(Boolean) } };
+    },
+    fill(b, q) { b.querySelector('.q-text-input').value = q.text || ''; b.querySelector('.dg-text').value = q.body || ''; b.querySelector('.dg-extra').value = (q.extra || []).join('\n'); },
+    init(qi) { studentAnswers[qi] = {}; QXS[qi] = { placed: {}, sel: null }; },
+    _st(qi, q) {
+        const S = QXS[qi];
+        if (!S.chips) {
+            const p = qxParse(q.body), words = p.answers.map(a => a[0]).concat(q.extra || []);
+            S.p = p; S.chips = shuffledIndices(words.length).map((wi, k) => ({ id: k, w: words[wi] }));
+        }
+        return S;
+    },
+    render(qi, q) {
+        const S = QX.dragfill._st(qi, q), body = qxBody(qi), rev = qxReviewing(qi);
+        const used = new Set(Object.values(S.placed));
+        const chip = c => `<span class="dg-chip ${S.sel === c.id ? 'ring-2 ring-indigo-500 bg-indigo-100' : 'bg-white'} inline-block px-3 py-1.5 m-0.5 border border-gray-300 rounded-full text-sm shadow-sm select-none ${rev ? '' : 'cursor-grab'}" style="touch-action:none" data-c="${c.id}">${escapeHtml(c.w)}</span>`;
+        const free = S.chips.filter(c => !used.has(c.id));
+        let h = `<div class="dg-bank flex flex-wrap gap-1 mb-3 p-3 bg-indigo-50 border border-indigo-100 rounded-lg min-h-[3rem]">${free.map(chip).join('') || '<span class="text-xs text-gray-400">All words placed</span>'}</div>`;
+        h += '<div class="leading-[2.6rem] whitespace-pre-wrap">' + S.p.parts.map((part, g) => {
+            let x = escapeHtml(part);
+            if (g < S.p.answers.length) {
+                const c = S.chips.find(c => c.id === S.placed[g]);
+                x += `<span class="dg-gap inline-block align-middle min-w-[5.5rem] mx-1 px-1 border-b-2 border-dashed ${c ? 'border-indigo-400' : 'border-gray-400 bg-gray-50'} rounded text-center" data-g="${g}">${c ? chip(c) : '&nbsp;'}</span>`;
+            }
+            return x;
+        }).join('') + '</div>';
+        body.innerHTML = h;
+        if (!S.bound) { S.bound = true; QX.dragfill._bind(qi, q, body); }
+    },
+    _place(qi, q, g, c) {
+        const S = QXS[qi];
+        for (const k of Object.keys(S.placed)) if (S.placed[k] === c) { delete S.placed[k]; delete studentAnswers[qi][k]; }
+        if (g != null) { S.placed[g] = c; studentAnswers[qi][g] = S.chips.find(x => x.id === c).w; }
+        S.sel = null; QX.dragfill.render(qi, q);
+    },
+    _bind(qi, q, body) {
+        const S = QXS[qi];
+        body.addEventListener('pointerdown', e => {
+            const el = e.target.closest('.dg-chip');
+            if (qxReviewing(qi) || exSubmitted) return;
+            if (!el) { const gap = e.target.closest('.dg-gap'); if (gap && S.sel != null) { e.preventDefault(); QX.dragfill._place(qi, q, +gap.dataset.g, S.sel); } return; }
+            e.preventDefault();
+            const c = +el.dataset.c, x0 = e.clientX, y0 = e.clientY;
+            let ghost = null;
+            const move = ev => {
+                if (!ghost && Math.hypot(ev.clientX - x0, ev.clientY - y0) > 7) {
+                    ghost = el.cloneNode(true);
+                    ghost.style.cssText = 'position:fixed;z-index:9999;pointer-events:none;opacity:.9;transform:translate(-50%,-50%);';
+                    document.body.appendChild(ghost); el.style.opacity = '.35';
+                }
+                if (ghost) { ghost.style.left = ev.clientX + 'px'; ghost.style.top = ev.clientY + 'px'; }
+            };
+            const up = ev => {
+                document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', up); document.removeEventListener('pointercancel', up);
+                if (ghost) {
+                    ghost.remove(); el.style.opacity = '';
+                    const t = document.elementFromPoint(ev.clientX, ev.clientY), tgt = t && t.closest('.dg-gap, .dg-bank');
+                    if (tgt && tgt.classList.contains('dg-gap')) QX.dragfill._place(qi, q, +tgt.dataset.g, c);
+                    else if (tgt) QX.dragfill._place(qi, q, null, c);
+                    else QX.dragfill.render(qi, q);
+                    return;
+                }
+                // a tap: select / place / return the word
+                const inGap = el.closest('.dg-gap');
+                if (inGap) { if (S.sel != null && S.sel !== c) QX.dragfill._place(qi, q, +inGap.dataset.g, S.sel); else QX.dragfill._place(qi, q, null, c); }
+                else { S.sel = S.sel === c ? null : c; QX.dragfill.render(qi, q); }
+            };
+            document.addEventListener('pointermove', move); document.addEventListener('pointerup', up); document.addEventListener('pointercancel', up);
+        });
+    },
+    answered(qi, q) { const S = QXS[qi]; if (!S) return false; const p = qxParse(q.body); return p.answers.every((_, g) => studentAnswers[qi][g] !== undefined); },
+    _ok(qi, q, g) { const v = (studentAnswers[qi] || {})[g]; return qxParse(q.body).answers[g].some(x => qxNorm(x) === qxNorm(v)); },
+    score(qi, q) { const n = qxParse(q.body).answers.length; let s = 0; for (let g = 0; g < n; g++) if (QX.dragfill._ok(qi, q, g)) s++; return { score: s, total: n }; },
+    live(qi, q) { return qxParse(q.body).answers.map((_, g) => (studentAnswers[qi] || {})[g] || '_').join(', '); },
+    review(qi, q) {
+        const S = QXS[qi]; S.rev = true; S.sel = null;
+        QX.dragfill.render(qi, q);
+        const p = qxParse(q.body); let all = true;
+        const lines = p.answers.map((a, g) => {
+            const good = QX.dragfill._ok(qi, q, g); if (!good) all = false;
+            const el = qxBody(qi).querySelector(`.dg-gap[data-g="${g}"]`); if (el) qxMark(el, good);
+            return `<li>${g + 1}. <strong>${good ? '&#10004; ' : '&#10008; '}${escapeHtml(a.join(' / '))}</strong></li>`;
+        });
+        setFeedback(qi, all, (all ? '&#10004; All correct' : '&#10008; Correct answers:') + '<ul class="mt-1 list-none space-y-0.5">' + lines.join('') + '</ul>');
+    }
+};
+
+</script>
     <script>
 // ==========================================================================
 // LIVE EXERCISES: the teacher pushes an exercise onto the board session,
@@ -4905,6 +5066,7 @@ function lxText(q, qi) {
     const t = q.type || 'mcq', a = studentAnswers[qi];
     const cut = s => String(s).length > 160 ? String(s).slice(0, 157) + '...' : String(s);
     try {
+        if (QX[t] && QX[t].live) { const v = QX[t].live(qi, q); return t === 'essay' ? (qxWords(v) ? qxWords(v) + ' words: ' + cut(v) : '') : v; }
         if (t === 'mcq') return a === undefined ? '' : q.options[a];
         if (t === 'tf') return a === undefined ? '' : (a === 0 ? 'True' : 'False');
         if (t === 'passage') return (q.questions || []).map((sq, si) => { const v = studentAnswers[`${qi}-${si}`]; return v === undefined ? '-' : sq.options[v]; }).join(' | ');
@@ -4932,7 +5094,9 @@ function lxSnapshot() {
     const st = getSubmittingStudent();
     const qs = ex.questions.map((q, qi) => {
         const done = lxAnswered(q, qi), sc = lxScore(q, qi);
-        return { a: lxText(q, qi), d: done ? 1 : 0, s: sc.score, t: sc.total, r: lxRaw(q, qi) };
+        const o = { a: lxText(q, qi), d: done ? 1 : 0, s: sc.score, t: sc.total, r: lxRaw(q, qi) };
+        if (q.type === 'essay') o.x = String(studentAnswers[qi] || '').slice(0, 4000);
+        return o;
     });
     return { t: 'ex_prog', sid: liveExS.sid, nm: st ? st.name : '', sub: exSubmitted ? 1 : 0, qs };
 }
@@ -4943,6 +5107,12 @@ const liveExS = { sid: null, timer: null, last: '', parent: null, next: null };
 window.liveExStudentOp = function (op) {
     if (op.t === 'ex_start') { if (liveExS.sid !== op.sid) startStudentLive(op); return; }
     if (op.sid !== liveExS.sid) return;
+    if (op.t === 'ex_grade') {
+        if (!studentBoard || op.to !== studentBoard.id) return;
+        const q = activeExerciseData && activeExerciseData.questions[op.qi];
+        if (q && q.type === 'essay') { QXS[op.qi] = QXS[op.qi] || {}; QXS[op.qi].grade = { pts: op.pts, cm: op.cm }; QX.essay.showGrade(op.qi, q); studentBoard.showToast('Your teacher corrected a written answer.'); }
+        return;
+    }
     if (op.t === 'ex_end') endStudentLive(true);
     else if (op.t === 'ex_reveal') {
         exSettings.showResult = 'answers';
@@ -4997,7 +5167,7 @@ function endStudentLive(notify) {
 window.liveExStudentLeave = function () { if (window.liveExActive) endStudentLive(false); };
 
 // ---------- teacher side ----------
-const liveExT = { active: false, sid: null, ex: null, startOp: null, students: {}, open: {} };
+const liveExT = { active: false, sid: null, ex: null, startOp: null, students: {}, open: {}, grades: {} };
 
 window.liveExRefreshList = function () {
     const sel = document.getElementById('live-ex-select'); if (!sel) return;
@@ -5016,9 +5186,9 @@ window.liveExStart = function () {
     const ex = adminExercises.find(e => String(e.id) === id);
     if (!ex) return alert('Choose an exercise first.');
     if (liveExT.active && !confirm('Replace the exercise that is running now?')) return;
-    const settings = { ...(ex.settings || {}), showResult: 'score' };   // answers are revealed by the teacher
+    const settings = { ...(ex.settings || {}), showResult: 'score', shuffleOptions: true };   // answers are revealed by the teacher
     const op = { t: 'ex_start', sid: newId(), ex: { id: ex.id, title: ex.title, target_class: ex.target_class, questions: ex.questions, settings } };
-    Object.assign(liveExT, { active: true, sid: op.sid, ex: op.ex, startOp: op, students: {}, open: {} });
+    Object.assign(liveExT, { active: true, sid: op.sid, ex: op.ex, startOp: op, students: {}, open: {}, grades: {} });
     teacherBoard.send(op);
     const rb = document.getElementById('live-ex-reveal-btn'); rb.textContent = 'Show answers'; rb.disabled = false;
     renderLiveEx();
@@ -5040,6 +5210,15 @@ window.liveExTeacherOp = function (op) {
     liveExT.students[op.f] = { nm: op.nm || 'Student (choosing name...)', sub: op.sub, qs: op.qs, at: Date.now() };
     clearTimeout(liveExT.rt); liveExT.rt = setTimeout(renderLiveEx, 150);
 };
+window.liveExGrade = function (sid, i) {
+    const pts = parseInt(document.getElementById(`lxg-p-${sid}-${i}`).value, 10) || 0;
+    const cm = document.getElementById(`lxg-c-${sid}-${i}`).value.trim();
+    liveExT.grades[sid + '|' + i] = { pts, cm, sent: true };
+    teacherBoard.send({ t: 'ex_grade', sid: liveExT.sid, to: sid, qi: i, pts, cm });
+    renderLiveEx();
+};
+window.liveExAll = function (open) { Object.keys(liveExT.students).forEach(id => { liveExT.open[id] = open; }); renderLiveEx(); };
+document.addEventListener('focusout', () => { setTimeout(() => { if (liveExT.deferred) renderLiveEx(); }, 250); });
 window.liveExToggle = function (id) { liveExT.open[id] = !liveExT.open[id]; renderLiveEx(); };
 
 function lxOptionList(opts, chosen, correct) {
@@ -5049,17 +5228,29 @@ function lxOptionList(opts, chosen, correct) {
         return `<div class="flex items-center gap-2 text-xs border rounded px-2 py-1 ${cls}"><span>${ch ? '&#9679;' : '&#9675;'}</span><span class="flex-1 break-words">${escapeHtml(o)}</span>${ch ? `<span>${co ? 'chosen' : 'chosen'}</span>` : ''}${co ? '<span>&#10004; correct</span>' : ''}</div>`;
     }).join('') + '</div>';
 }
-function lxDetailQ(q, qq, i) {
+function lxDetailQ(q, qq, i, sid) {
     const ty = qq.type || 'mcq';
-    const mark = !q.d ? '<span class="text-gray-400">&#8226;</span>' : (q.s === q.t ? '<span class="text-green-600 font-bold">&#10004;</span>' : (q.s > 0 ? '<span class="text-amber-600 font-bold">&#189;</span>' : '<span class="text-red-600 font-bold">&#10008;</span>'));
+    const mark = !q.d ? '<span class="text-gray-400">&#8226;</span>' : ty === 'essay' ? '<span class="text-indigo-600 font-bold">&#9998;</span>' : (q.s === q.t ? '<span class="text-green-600 font-bold">&#10004;</span>' : (q.s > 0 ? '<span class="text-amber-600 font-bold">&#189;</span>' : '<span class="text-red-600 font-bold">&#10008;</span>'));
     const title = qq.text || (qq.passage ? qq.passage.slice(0, 60) + '...' : '');
     let body;
     if (ty === 'mcq') body = lxOptionList(qq.options, q.r == null ? [] : [q.r], [parseInt(qq.correctIndex)]);
     else if (ty === 'tf') body = lxOptionList(['True', 'False'], q.r == null ? [] : [q.r], [qq.correct ? 0 : 1]);
     else if (ty === 'multi') body = lxOptionList(qq.options, q.r || [], qq.correct || []);
     else if (ty === 'passage') body = (qq.questions || []).map((sq, si) => `<div class="mt-1"><div class="text-xs text-gray-700">${i + 1}.${si + 1} ${escapeHtml(sq.text)}</div>${lxOptionList(sq.options, (q.r && q.r[si] != null) ? [q.r[si]] : [], [parseInt(sq.correctIndex)])}</div>`).join('');
+    else if (ty === 'essay') {
+        const key = sid + '|' + i, g = liveExT.grades[key] || {}, max = qq.pts || 5;
+        const words = qxWords(q.x);
+        body = `<div class="mt-1 text-xs text-gray-900 whitespace-pre-wrap break-words bg-gray-50 border border-gray-200 rounded p-2 ${q.x ? '' : 'text-gray-400'}">${q.x ? escapeHtml(q.x) : 'not started'}</div>
+            <div class="text-[11px] text-gray-500 mt-0.5">${words} words${qq.minWords ? ' (min ' + qq.minWords + ')' : ''}</div>
+            ${qq.model ? `<details class="text-[11px] text-gray-500 mt-1"><summary class="cursor-pointer">Model answer</summary><div class="whitespace-pre-wrap">${escapeHtml(qq.model)}</div></details>` : ''}
+            <div class="flex flex-wrap items-center gap-1.5 mt-1.5">
+                <select id="lxg-p-${sid}-${i}" class="text-xs border border-gray-300 rounded px-1 py-1">${Array.from({ length: max + 1 }, (_, v) => `<option value="${v}" ${g.pts === v ? 'selected' : ''}>${v}/${max}</option>`).join('')}</select>
+                <input id="lxg-c-${sid}-${i}" type="text" value="${escapeHtml(g.cm || '')}" placeholder="Comment for the student" class="flex-1 min-w-[8rem] text-xs border border-gray-300 rounded px-2 py-1">
+                <button type="button" onclick="window.liveExGrade('${sid}', ${i})" class="text-xs px-2 py-1 rounded ${g.sent ? 'bg-green-600' : 'bg-indigo-600'} text-white font-semibold">${g.sent ? 'Sent &#10004; (update)' : 'Send correction'}</button>
+            </div>`;
+    }
     else body = `<div class="text-xs text-gray-800 break-words mt-1 ${q.a ? '' : 'text-gray-400'}">${q.a ? escapeHtml(q.a) : 'no answer yet'}</div>`;
-    return `<div class="border-l-2 ${!q.d ? 'border-gray-200' : q.s === q.t ? 'border-green-400' : 'border-red-400'} pl-2">
+    return `<div class="border-l-2 ${!q.d ? 'border-gray-200' : ty === 'essay' ? 'border-indigo-400' : q.s === q.t ? 'border-green-400' : 'border-red-400'} pl-2">
         <div class="text-xs text-gray-600">${mark} <b>Q${i + 1}</b> &middot; ${escapeHtml(Q_TYPE_LABELS[ty] || 'Multiple choice')} &middot; ${escapeHtml(title)}</div>${body}</div>`;
 }
 
@@ -5069,6 +5260,9 @@ function renderLiveEx() {
     setup.classList.toggle('hidden', liveExT.active);
     run.classList.toggle('hidden', !liveExT.active);
     if (!liveExT.active) return;
+    const fa = document.activeElement;
+    if (fa && fa.closest && fa.closest('#live-ex-students') && /^(INPUT|SELECT|TEXTAREA)$/.test(fa.tagName)) { liveExT.deferred = true; return; }   // don't steal the teacher's typing
+    liveExT.deferred = false;
     const ex = liveExT.ex, n = ex.questions.length;
     const rows = Object.entries(liveExT.students).sort((a, b) => a[1].nm.localeCompare(b[1].nm));
     const submitted = rows.filter(([, s]) => s.sub).length;
@@ -5079,8 +5273,8 @@ function renderLiveEx() {
         const answered = s.qs.filter(q => q.d).length;
         const sc = s.qs.reduce((x, q) => x + q.s, 0), tot = s.qs.reduce((x, q) => x + q.t, 0);
         const pct = Math.round(answered / n * 100);
-        const open = liveExT.open[id] !== undefined ? liveExT.open[id] : rows.length <= 3;
-        const detail = open ? `<div class="px-3 pb-3 space-y-2">` + s.qs.map((q, i) => lxDetailQ(q, ex.questions[i], i)).join('') + `</div>` : '';
+        const open = liveExT.open[id] !== undefined ? liveExT.open[id] : true;
+        const detail = open ? `<div class="px-3 pb-3 space-y-2">` + s.qs.map((q, i) => lxDetailQ(q, ex.questions[i], i, id)).join('') + `</div>` : '';
         return `<div class="border border-gray-200 rounded-lg bg-white">
             <button type="button" onclick="window.liveExToggle('${id}')" class="w-full text-left px-3 py-2">
                 <div class="flex items-center justify-between gap-2"><span class="text-sm font-medium text-gray-900 truncate">${escapeHtml(s.nm)}</span>
