@@ -3450,7 +3450,8 @@ class Board {
                 <div class="flex flex-wrap items-center gap-2">
                     ${T ? `<label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none"><input type="checkbox" class="bd-allow w-4 h-4"> Let students draw</label>
                            <button type="button" class="bd-text-btn" data-act="clrstu">Clear student drawings</button>
-                            <button type="button" class="bd-text-btn" data-act="savebd" title="Save this board for later, open saved boards, export or import a file">Save / Open</button>` : `<button type="button" class="bd-text-btn bd-hand" data-act="hand">&#9995; Raise hand</button>`}
+                            <button type="button" class="bd-text-btn" data-act="savebd" title="Save this board as a lesson (with its exercises), open saved lessons, export or import a file">Save / Open lesson</button>
+                            <span class="bd-lesson-name hidden text-xs font-semibold text-emerald-700 truncate max-w-[14rem]"></span>` : `<button type="button" class="bd-text-btn bd-hand" data-act="hand">&#9995; Raise hand</button>`}
                     ${act('download', 'download', 'Save this page as an image')}
                     ${act('zoom', 'zoom', 'Zoom the board (scroll sideways to move around)', 'md:hidden')}
                     ${act('full', 'full', 'Fullscreen')}
@@ -4699,69 +4700,115 @@ class Board {
     }
     async openSaveDialog() {
         const old = document.getElementById('bd-save-modal'); if (old) old.remove();
-        const defName = (this.cls || 'Board') + ' - ' + new Date().toLocaleDateString();
+        const cls = this.cls || '';
+        const defName = this.lesson ? this.lesson.name : '';
+        const selIds = new Set((this.lesson ? this.lesson.exercise_ids : []).map(String));
+        const exAll = (typeof adminExercises !== 'undefined' ? adminExercises : []).slice();
+        const exRow = e => `<label class="flex items-start gap-2 py-1 text-sm cursor-pointer" data-cls="${escapeHtml(e.target_class || '')}"><input type="checkbox" class="bd-ex-ck mt-0.5 w-4 h-4" value="${escapeHtml(String(e.id))}" ${selIds.has(String(e.id)) ? 'checked' : ''}><span class="min-w-0 break-words"><b>${escapeHtml(e.title)}</b> <span class="text-xs text-gray-500">${escapeHtml(e.target_class || '')} &middot; ${(e.questions || []).length} q</span></span></label>`;
         document.body.insertAdjacentHTML('beforeend', `<div id="bd-save-modal" class="fixed inset-0 z-[9998] bg-black/50 flex items-center justify-center p-4">
-            <div class="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[88vh] overflow-y-auto p-5">
-                <div class="flex justify-between items-start mb-3"><h3 class="text-lg font-bold text-gray-900">Saved boards</h3><button type="button" data-x class="text-2xl leading-none text-gray-400 hover:text-gray-700">&times;</button></div>
+            <div class="bg-white rounded-xl shadow-xl max-w-xl w-full max-h-[90vh] overflow-y-auto p-5">
+                <div class="flex justify-between items-start mb-3"><h3 class="text-lg font-bold text-gray-900">Lesson boards</h3><button type="button" data-x class="text-2xl leading-none text-gray-400 hover:text-gray-700">&times;</button></div>
                 <div class="bg-indigo-50 border border-indigo-100 rounded-lg p-3 mb-4">
-                    <label class="block text-xs font-medium text-gray-600 mb-1">Save the current board (all ${this.pages.length} page${this.pages.length > 1 ? 's' : ''}) as</label>
-                    <div class="flex gap-2"><input type="text" id="bd-save-name" class="flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-lg text-sm" value="${escapeHtml(defName)}"><button type="button" data-save class="px-4 py-2 text-sm font-semibold rounded-lg bg-indigo-600 text-white">Save</button></div>
+                    <label class="block text-xs font-medium text-gray-600 mb-1">Save this board (${this.pages.length} page${this.pages.length > 1 ? 's' : ''}) under the lesson name</label>
+                    <input type="text" id="bd-save-name" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm mb-3" placeholder="e.g. Past Simple - irregular verbs" value="${escapeHtml(defName)}">
+                    <div class="flex items-center justify-between mb-1"><span class="text-xs font-medium text-gray-600">Exercises for this lesson</span>
+                        <label class="text-xs text-gray-600 flex items-center gap-1 cursor-pointer"><input type="checkbox" id="bd-ex-only" class="w-3.5 h-3.5" ${cls ? 'checked' : ''}> only ${cls ? 'this class' : 'all'}</label></div>
+                    <div id="bd-ex-list" class="max-h-44 overflow-y-auto bg-white border border-gray-200 rounded-lg px-3 py-1">${exAll.length ? exAll.map(exRow).join('') : '<p class="text-xs text-gray-500 py-2">No exercises yet. Create them in Homework &amp; Exercises, then attach them here.</p>'}</div>
+                    <div class="flex flex-wrap gap-2 mt-3">
+                        <button type="button" data-save class="px-4 py-2 text-sm font-semibold rounded-lg bg-indigo-600 text-white">${this.lesson ? 'Save as a new lesson' : 'Save lesson'}</button>
+                        ${this.lesson ? `<button type="button" data-update class="px-4 py-2 text-sm font-semibold rounded-lg bg-emerald-600 text-white" title="Overwrite the saved lesson with the current board and exercises">Update &ldquo;${escapeHtml(this.lesson.name.slice(0, 28))}&rdquo;</button>` : ''}
+                    </div>
                     <p id="bd-save-msg" class="text-xs mt-2 text-gray-500"></p>
                 </div>
-                <div class="flex flex-wrap gap-2 mb-4">
+                <div class="flex flex-wrap gap-2 mb-3">
                     <button type="button" data-dl class="px-3 py-1.5 text-sm rounded-lg border border-gray-300 hover:bg-gray-50">Download as file</button>
                     <button type="button" data-imp class="px-3 py-1.5 text-sm rounded-lg border border-gray-300 hover:bg-gray-50">Import a file</button>
                     <input type="file" accept=".json,application/json" id="bd-imp-file" class="hidden">
                 </div>
+                <h4 class="text-sm font-bold text-gray-800 mb-2">Saved lessons</h4>
                 <div id="bd-save-list" class="space-y-2 text-sm text-gray-500">Loading...</div>
             </div></div>`);
         const m = document.getElementById('bd-save-modal'), msg = m.querySelector('#bd-save-msg'), list = m.querySelector('#bd-save-list');
         const say = (t, bad) => { msg.textContent = t; msg.className = 'text-xs mt-2 ' + (bad ? 'text-red-600' : 'text-green-700'); };
         const close = () => m.remove();
+        const applyExFilter = () => { const only = m.querySelector('#bd-ex-only').checked; m.querySelectorAll('#bd-ex-list [data-cls]').forEach(l => { const ck = l.querySelector('input').checked; l.style.display = (!only || !cls || l.dataset.cls === cls || ck) ? '' : 'none'; }); };
+        m.querySelector('#bd-ex-only').addEventListener('change', applyExFilter); applyExFilter();
+        const chosen = () => [...m.querySelectorAll('.bd-ex-ck:checked')].map(c => c.value);
+        const titleOf = id => { const e = exAll.find(x => String(x.id) === String(id)); return e ? e.title : null; };
+        let rows = [];
         const loadList = async () => {
             if (!isDbConnected) { list.textContent = 'Saving online needs the database. You can still download or import files.'; return; }
-            const { data, error } = await supabaseClient.from('portal_boards').select('id, name, page_count, created_at').order('created_at', { ascending: false });
-            if (error) { list.innerHTML = '<p class="text-amber-700">Saved boards are not set up yet. Run <b>portal-setup-v6.sql</b> in the Supabase SQL Editor. Until then use "Download as file".</p>'; return; }
-            if (!data.length) { list.textContent = 'No saved boards yet.'; return; }
-            list.innerHTML = data.map(b => `<div class="border border-gray-200 rounded-lg p-3 flex flex-wrap items-center gap-2" data-id="${escapeHtml(String(b.id))}">
-                <div class="flex-1 min-w-[10rem]"><div class="font-semibold text-gray-900 break-words">${escapeHtml(b.name)}</div><div class="text-xs text-gray-500">${b.page_count || 1} page${(b.page_count || 1) > 1 ? 's' : ''} &middot; ${new Date(b.created_at).toLocaleString()}</div></div>
-                <button type="button" data-load class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 text-white">Open</button>
-                <button type="button" data-add class="px-3 py-1.5 text-xs rounded-lg border border-gray-300 hover:bg-gray-50" title="Add its pages after the current ones">Add pages</button>
-                <button type="button" data-del class="px-2 py-1.5 text-xs text-red-600 hover:underline">Delete</button></div>`).join('');
+            let res = await supabaseClient.from('portal_boards').select('id, name, page_count, created_at, exercise_ids, class_name').order('created_at', { ascending: false });
+            if (res.error) res = await supabaseClient.from('portal_boards').select('id, name, page_count, created_at').order('created_at', { ascending: false });
+            const { data, error } = res;
+            if (error) { list.innerHTML = '<p class="text-amber-700">Saved lessons are not set up yet. Run <b>portal-setup-v6.sql</b> in the Supabase SQL Editor. Until then use "Download as file".</p>'; return; }
+            rows = data;
+            if (!data.length) { list.textContent = 'No saved lessons yet.'; return; }
+            list.innerHTML = data.map(b => { const ids = Array.isArray(b.exercise_ids) ? b.exercise_ids : []; const names = ids.map(titleOf).filter(Boolean);
+                return `<div class="border ${this.lesson && String(this.lesson.id) === String(b.id) ? 'border-emerald-400 bg-emerald-50' : 'border-gray-200'} rounded-lg p-3" data-id="${escapeHtml(String(b.id))}">
+                <div class="flex flex-wrap items-center gap-2">
+                    <div class="flex-1 min-w-[10rem]"><div class="font-semibold text-gray-900 break-words">${escapeHtml(b.name)}</div>
+                        <div class="text-xs text-gray-500">${b.page_count || 1} page${(b.page_count || 1) > 1 ? 's' : ''}${b.class_name ? ' &middot; ' + escapeHtml(b.class_name) : ''} &middot; ${ids.length} exercise${ids.length === 1 ? '' : 's'} &middot; ${new Date(b.created_at).toLocaleDateString()}</div>
+                        ${names.length ? `<div class="text-xs text-indigo-700 mt-0.5 break-words">${names.map(escapeHtml).join(' &bull; ')}</div>` : ''}</div>
+                    <button type="button" data-load class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 text-white">Open</button>
+                    <button type="button" data-add class="px-3 py-1.5 text-xs rounded-lg border border-gray-300 hover:bg-gray-50" title="Add its pages after the current ones">Add pages</button>
+                    <button type="button" data-del class="px-2 py-1.5 text-xs text-red-600 hover:underline">Delete</button></div></div>`; }).join('');
+        };
+        const payload = () => { const d = this.boardData(), name = m.querySelector('#bd-save-name').value.trim(); return { name, row: { name, data: d, page_count: this.pages.length, exercise_ids: chosen(), class_name: this.cls || '' } }; };
+        const saveRow = async (updateId) => {
+            const { name, row } = payload();
+            if (!name) { say('Give the lesson a name first.', true); return; }
+            if (!isDbConnected) { this.downloadBoardFile(name); say('No database: saved as a file instead.'); return; }
+            say('Saving...');
+            let q = updateId ? supabaseClient.from('portal_boards').update(row).eq('id', updateId).select('id').single() : supabaseClient.from('portal_boards').insert([row]).select('id').single();
+            let { data, error } = await q;
+            if (error && /exercise_ids|class_name/.test(error.message || '')) {         // older table: save without the extras
+                const r2 = { name: row.name, data: row.data, page_count: row.page_count };
+                ({ data, error } = await (updateId ? supabaseClient.from('portal_boards').update(r2).eq('id', updateId).select('id').single() : supabaseClient.from('portal_boards').insert([r2]).select('id').single()));
+                if (!error) say('Saved, but exercises could not be attached: run the updated portal-setup-v6.sql.', true);
+            }
+            if (error) { this.downloadBoardFile(name); say('Could not save online (' + (error.message || 'error') + '). It was downloaded as a file instead. Run portal-setup-v6.sql to enable online saving.', true); return; }
+            this.lesson = { id: data && data.id !== undefined ? data.id : updateId, name, exercise_ids: chosen() };
+            this.afterLessonChange();
+            if (!/could not be attached/.test(msg.textContent)) say('Saved as lesson "' + name + '" with ' + chosen().length + ' exercise' + (chosen().length === 1 ? '' : 's') + '.');
+            loadList();
         };
         m.addEventListener('click', async e => {
             if (e.target === m || e.target.closest('[data-x]')) { close(); return; }
             if (e.target.closest('[data-dl]')) { this.downloadBoardFile(m.querySelector('#bd-save-name').value); return; }
             if (e.target.closest('[data-imp]')) { m.querySelector('#bd-imp-file').click(); return; }
-            if (e.target.closest('[data-save]')) {
-                const name = m.querySelector('#bd-save-name').value.trim() || defName;
-                if (!isDbConnected) { this.downloadBoardFile(name); say('No database: saved as a file instead.'); return; }
-                say('Saving...');
-                const d = this.boardData(); const size = JSON.stringify(d).length;
-                const { error } = await supabaseClient.from('portal_boards').insert([{ name, data: d, page_count: this.pages.length }]);
-                if (error) { this.downloadBoardFile(name); say('Could not save online (' + (error.message || 'error') + '). It was downloaded as a file instead. Run portal-setup-v6.sql to enable online saving.', true); return; }
-                say('Saved' + (size > 3e6 ? ' (large board with images)' : '') + '.'); loadList(); return;
-            }
+            if (e.target.closest('[data-save]')) { await saveRow(null); return; }
+            if (e.target.closest('[data-update]')) { if (this.lesson && confirm('Overwrite the saved lesson "' + this.lesson.name + '" with this board?')) await saveRow(this.lesson.id); return; }
             const row = e.target.closest('[data-id]'); if (!row) return;
             const id = row.dataset.id;
             if (e.target.closest('[data-del]')) {
-                if (!confirm('Delete this saved board?')) return;
-                await supabaseClient.from('portal_boards').delete().eq('id', id); loadList(); return;
+                if (!confirm('Delete this saved lesson?')) return;
+                await supabaseClient.from('portal_boards').delete().eq('id', id);
+                if (this.lesson && String(this.lesson.id) === id) { this.lesson = null; this.afterLessonChange(); }
+                loadList(); return;
             }
             const mode = e.target.closest('[data-load]') ? 'replace' : e.target.closest('[data-add]') ? 'append' : '';
             if (!mode) return;
-            if (mode === 'replace' && !confirm('Replace everything on the board with this saved board?')) return;
+            if (mode === 'replace' && !confirm('Replace everything on the board with this lesson?')) return;
             say('Loading...');
             const { data, error } = await supabaseClient.from('portal_boards').select('data').eq('id', id).single();
             if (error || !data) { say('Could not open it.', true); return; }
-            this.applyBoardData(data.data, mode); close();
+            const meta = rows.find(r => String(r.id) === id) || {};
+            this.applyBoardData(data.data, mode);
+            if (mode === 'replace') { this.lesson = { id: meta.id, name: meta.name, exercise_ids: Array.isArray(meta.exercise_ids) ? meta.exercise_ids : [] }; this.afterLessonChange(); this.showToast('Opened "' + meta.name + '" - its exercises are in the Live exercise list.'); }
+            close();
         });
         m.querySelector('#bd-imp-file').addEventListener('change', async e => {
             const f = e.target.files[0]; e.target.value = ''; if (!f) return;
-            try { const d = JSON.parse(await f.text()); if (confirm('Replace the current board with this file? (Cancel = add its pages after the current ones)')) this.applyBoardData(d, 'replace'); else this.applyBoardData(d, 'append'); close(); }
+            try { const d = JSON.parse(await f.text()); if (confirm('Replace the current board with this file? (Cancel = add its pages after the current ones)')) { this.applyBoardData(d, 'replace'); if (d.name) { this.lesson = null; this.afterLessonChange(); } } else this.applyBoardData(d, 'append'); close(); }
             catch (err) { alert('That file could not be read.'); }
         });
         loadList();
+    }
+    afterLessonChange() {
+        window.lessonBoard = this.lesson ? { name: this.lesson.name, ids: (this.lesson.exercise_ids || []).map(String) } : null;
+        if (window.liveExRefreshList) window.liveExRefreshList();
+        const l = this.mount.querySelector('.bd-lesson-name'); if (l) { l.textContent = this.lesson ? 'Lesson: ' + this.lesson.name : ''; l.classList.toggle('hidden', !this.lesson); }
     }
 
     // ---------- undo / redo ----------
@@ -5785,11 +5832,16 @@ window.liveExRefreshList = function () {
     const sel = document.getElementById('live-ex-select'); if (!sel) return;
     const cls = document.getElementById('board-class-select').value;
     const cur = sel.value;
-    const list = cls ? adminExercises.filter(e => e.target_class === cls) : [];
-    sel.innerHTML = list.length
-        ? '<option value="">-- Choose an exercise --</option>' + list.map(e => `<option value="${escapeHtml(e.id)}">${escapeHtml(e.title)} (${(e.questions || []).length} q)</option>`).join('')
-        : `<option value="">${cls ? 'No exercises for this class yet' : 'Choose a class first'}</option>`;
-    if (cur && list.some(e => String(e.id) === cur)) sel.value = cur;
+    const opt = e => `<option value="${escapeHtml(e.id)}">${escapeHtml(e.title)} (${(e.questions || []).length} q)</option>`;
+    const lb = window.lessonBoard, attached = lb ? lb.ids.map(id => adminExercises.find(e => String(e.id) === id)).filter(Boolean) : [];
+    const aset = new Set(attached.map(e => String(e.id)));
+    const list = (cls ? adminExercises.filter(e => e.target_class === cls) : []).filter(e => !aset.has(String(e.id)));
+    let html = '';
+    if (attached.length) html += `<optgroup label="Lesson: ${escapeHtml(lb.name)}">${attached.map(opt).join('')}</optgroup>`;
+    if (list.length) html += `<optgroup label="Other exercises of this class">${list.map(opt).join('')}</optgroup>`;
+    sel.innerHTML = html ? '<option value="">-- Choose an exercise --</option>' + html : `<option value="">${cls ? 'No exercises for this class yet' : 'Choose a class first'}</option>`;
+    if (cur && [...sel.options].some(o => o.value === cur)) sel.value = cur;
+    else if (attached.length === 1) sel.value = String(attached[0].id);
 };
 
 window.liveExStart = function () {
