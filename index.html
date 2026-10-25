@@ -49,6 +49,18 @@
         .bd-text-btn:hover { background:#f3f4f6; }
         .bd-danger-t:hover { background:#fee2e2; color:#b91c1c; border-color:#fca5a5; }
         .bd-pulse { animation: bdPulse 1.4s infinite; }
+        .bd-fmt { position:relative; padding-top:6px; min-width:0; max-width:100%; }
+        .bd-root { min-width:0; max-width:100%; }
+        .bd-fb { min-width:30px; height:30px; padding:0 7px; border-radius:7px; border:1px solid #d1d5db; background:#fff; color:#374151; font-size:14px; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; }
+        .bd-fb:hover { background:#eef2ff; }
+        .bd-fb.on { background:#4f46e5; color:#fff; border-color:#4f46e5; }
+        .bd-hl { width:22px; height:22px; border-radius:6px; border:2px solid #d1d5db; cursor:pointer; padding:0; }
+        .bd-hl.on { border-color:#4f46e5; box-shadow:0 0 0 2px #c7d2fe; }
+        .bd-sym { position:absolute; z-index:30; left:8px; top:100%; margin-top:4px; width:min(340px, 92%); background:#fff; border:1px solid #d1d5db; border-radius:10px; box-shadow:0 10px 25px rgba(0,0,0,.15); padding:8px; display:none; max-height:260px; overflow:auto; }
+        .bd-sym.open { display:block; }
+        .bd-sym button { min-width:34px; height:34px; margin:2px; border:1px solid #e5e7eb; border-radius:7px; background:#f9fafb; font-size:17px; cursor:pointer; }
+        .bd-sym button:hover { background:#eef2ff; }
+        @media (pointer: coarse) { .bd-fb { min-width:38px; height:38px; } .bd-hl { width:30px; height:30px; } }
         @keyframes bdPulse { 0%,100% { opacity:1; } 50% { opacity:.35; } }
         .bd-root:fullscreen { background:#fff; border-radius:0; }
         .bd-root.bd-fake-full { position:fixed !important; inset:0; z-index:60; height:100dvh !important; border-radius:0; display:flex; flex-direction:column; }
@@ -410,7 +422,7 @@
                 </div>
                 <p id="board-empty-msg" class="text-center text-gray-500 py-10 bg-white rounded-xl border border-dashed border-gray-300">Choose a class to open its board.</p>
                 <div id="board-wrap" class="hidden">
-                    <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem] items-start">
+                    <div class="grid gap-4 grid-cols-[minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_22rem] items-start">
                         <div id="teacher-board-mount"></div>
                         <div id="live-ex-panel" class="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
                             <h3 class="font-bold text-gray-900 mb-1">Live exercise</h3>
@@ -3241,6 +3253,38 @@ async function bdFreeChannels(names) {
     }
 }
 
+// ----- text formatting helpers -----
+const BD_FONTS = {
+    sans: 'Inter, system-ui, -apple-system, "Segoe UI", sans-serif',
+    serif: 'Georgia, "Times New Roman", serif',
+    mono: '"Courier New", ui-monospace, monospace',
+    hand: '"Comic Sans MS", "Segoe Print", "Bradley Hand", cursive',
+    ar: '"Noto Naskh Arabic", "Traditional Arabic", Tahoma, serif'
+};
+const BD_HL = ['', '#fde68a', '#bbf7d0', '#fbcfe8', '#bfdbfe'];
+const BD_TDEF = { f: 'sans', b: 0, i: 0, u: 0, al: '', bg: '' };
+const BD_SYMBOLS = ['\u026A', 'i\u02D0', '\u028A', 'u\u02D0', 'e', '\u0259', '\u025C\u02D0', '\u0254\u02D0', '\u00E6', '\u028C', '\u0251\u02D0', '\u0252', 'a\u026A', 'e\u026A', '\u0254\u026A', '\u0259\u028A', 'a\u028A', '\u026A\u0259', 'e\u0259', '\u028A\u0259',
+    '\u03B8', '\u00F0', '\u0283', '\u0292', 't\u0283', 'd\u0292', '\u014B', '\u02C8', '\u02CC', '\u02D0', '\u00B7',
+    '\u2713', '\u2717', '\u2192', '\u2190', '\u2191', '\u2193', '\u21D2', '\u2605', '\u25CF', '\u2022', '\u2014', '\u2026', '\u00B0', '\u00BD', '\u00BF', '\u00AB', '\u00BB', '\u00B2', '\u00B3', '\u2260', '\u2248', '\u00D7', '\u00F7', '\u00E9', '\u00E8', '\u00E0', '\u00E7', '\u00EA', '\u00F4', '\u00FB'];
+const bdRtl = s => /[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/.test(s);
+function bdListText(text, a, b, kind) {
+    // add / remove "• " or "1. " on the lines touched by the selection [a, b]
+    const lines = text.split('\n'); let pos = 0, first = -1, last = -1;
+    lines.forEach((ln, i) => { const s0 = pos, e0 = pos + ln.length; if (e0 >= a && s0 <= b) { if (first < 0) first = i; last = i; } pos = e0 + 1; });
+    if (first < 0) { first = last = lines.length - 1; }
+    const re = kind === 'ul' ? /^\u2022\s/ : /^\d+\.\s/;
+    const idx = []; for (let i = first; i <= last; i++) idx.push(i);
+    const filled = idx.filter(i => lines[i].trim());
+    const allHave = filled.length > 0 && filled.every(i => re.test(lines[i]));
+    let n = 1;
+    idx.forEach(i => {
+        const clean = lines[i].replace(/^(\u2022|\d+\.)\s/, '');
+        if (allHave) lines[i] = clean;
+        else lines[i] = (kind === 'ul' ? '\u2022 ' : (n++) + '. ') + clean;
+    });
+    return lines.join('\n');
+}
+
 // ----- the board -----
 class Board {
     constructor(mount, mode, opts = {}) {
@@ -3250,7 +3294,7 @@ class Board {
         this.pages = [{ objs: [], bg: 'white' }];
         this.cur = 0; this.allow = false;
         this.tool = 'pen'; this.color = BD.COLORS[0]; this.size = 4; this.fill = false;
-        this.sel = null; this.lasers = {}; this.hist = []; this.redoS = []; this.imgs = {};
+        this.sel = null; this.lasers = {}; this.hist = []; this.redoS = []; this.imgs = {}; this.tfmt = { ...BD_TDEF }; this.tsz = null;
         this.tr = null; this.cls = null; this.online = []; this.status = 'offline';
         this.hasState = this.isT; this.pend = { pts: [], shape: false, del: [], mv: null, upd: null };
         this.drag = null; this.rafId = 0; this.saveT = null; this.syncT = null; this.syncId = null;
@@ -3303,6 +3347,32 @@ class Board {
                     ${T ? act('clear', 'trash', 'Clear this page', 'bd-danger') : ''}
                 </div>
             </div>
+                <div class="bd-fmt hidden flex flex-wrap items-center gap-1.5 px-2 pb-2 bg-gray-50 border-b border-gray-200">
+                    <select class="bd-f-font border border-gray-300 rounded-md px-1.5 py-1 bg-white text-sm" title="Font">
+                        <option value="sans">Sans</option><option value="serif">Serif</option><option value="mono">Typewriter</option><option value="hand">Handwriting</option><option value="ar">Arabic (Naskh)</option>
+                    </select>
+                    <button type="button" class="bd-fb" data-fmt="smaller" title="Smaller text">A&minus;</button>
+                    <input type="number" class="bd-f-size w-14 border border-gray-300 rounded-md px-1 py-1 text-sm text-center" min="8" max="240" title="Text size">
+                    <button type="button" class="bd-fb" data-fmt="bigger" title="Bigger text">A+</button>
+                    <span class="bd-sep"></span>
+                    <button type="button" class="bd-fb font-bold" data-fmt="b" title="Bold (Ctrl+B)">B</button>
+                    <button type="button" class="bd-fb italic" data-fmt="i" title="Italic (Ctrl+I)">I</button>
+                    <button type="button" class="bd-fb underline" data-fmt="u" title="Underline (Ctrl+U)">U</button>
+                    <span class="bd-sep"></span>
+                    <button type="button" class="bd-fb" data-fmt="al-left" title="Align left"><svg width="16" height="14" viewBox="0 0 16 14" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 2h14M1 6h9M1 10h12"/></svg></button>
+                    <button type="button" class="bd-fb" data-fmt="al-center" title="Centre"><svg width="16" height="14" viewBox="0 0 16 14" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 2h14M4 6h8M2 10h12"/></svg></button>
+                    <button type="button" class="bd-fb" data-fmt="al-right" title="Align right"><svg width="16" height="14" viewBox="0 0 16 14" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 2h14M6 6h9M3 10h12"/></svg></button>
+                    <span class="bd-sep"></span>
+                    <button type="button" class="bd-fb" data-fmt="ul" title="Bullet list">&bull; List</button>
+                    <button type="button" class="bd-fb" data-fmt="ol" title="Numbered list">1. List</button>
+                    <span class="bd-sep"></span>
+                    <span class="text-xs text-gray-500">Highlight</span>
+                    ${BD_HL.map(c => `<button type="button" class="bd-hl" data-hl="${c}" style="background:${c || 'repeating-linear-gradient(45deg,#fff,#fff 3px,#e5e7eb 3px,#e5e7eb 5px)'}" title="${c ? 'Highlight' : 'No highlight'}"></button>`).join('')}
+                    <span class="bd-sep"></span>
+                    <button type="button" class="bd-fb" data-fmt="sym" title="Symbols and phonetic (IPA) characters">&Omega; Symbols</button>
+                    <button type="button" class="bd-fb bd-f-done hidden" data-fmt="done" style="background:#16a34a;color:#fff;border-color:#16a34a" title="Finish editing (Ctrl+Enter)">&#10003; Done</button>
+                    <div class="bd-sym">${BD_SYMBOLS.map(x => `<button type="button" data-sym="${x}">${x}</button>`).join('')}</div>
+                </div>
             <div class="bd-stage relative bg-gray-200 flex items-center justify-center p-2 sm:p-3 overflow-hidden">
                 <div class="bd-frame relative shadow-md bg-white" style="width:800px;height:450px">
                     <canvas class="bd-canvas block w-full h-full"></canvas>
@@ -3345,8 +3415,27 @@ class Board {
             if (a) this.action(a.dataset.act);
         });
         q('.bd-color-input').addEventListener('input', e => this.setColor(e.target.value));
-        q('.bd-size').addEventListener('input', e => { this.size = +e.target.value; });
+        q('.bd-size').addEventListener('input', e => { this.size = +e.target.value; this.tsz = null; if (this.tool === 'text') this.refreshFmt(); });
         q('.bd-fill').addEventListener('change', e => { this.fill = e.target.checked; });
+        const fmtEl = this.fmtEl = q('.bd-fmt');
+        fmtEl.addEventListener('mousedown', e => { if (!/^(SELECT|INPUT|OPTION)$/.test(e.target.tagName)) e.preventDefault(); });
+        fmtEl.addEventListener('pointerdown', e => { if (!/^(SELECT|INPUT|OPTION)$/.test(e.target.tagName)) e.preventDefault(); });
+        fmtEl.addEventListener('click', e => {
+            const f = e.target.closest('[data-fmt]'), h = e.target.closest('[data-hl]'), sy = e.target.closest('[data-sym]');
+            if (sy) { this.insertSymbol(sy.dataset.sym); return; }
+            if (h) { this.fmtApply({ bg: h.dataset.hl }); return; }
+            if (!f) return;
+            const k = f.dataset.fmt, cur = this.fmtCurrent();
+            if (k === 'b' || k === 'i' || k === 'u') this.fmtApply({ [k]: cur[k] ? 0 : 1 });
+            else if (k.startsWith('al-')) { const v = k.slice(3); this.fmtApply({ al: cur.al === v ? '' : v }); }
+            else if (k === 'smaller') this.fmtApply({ s: Math.max(8, Math.round(cur.s - (cur.s > 40 ? 6 : 3))) });
+            else if (k === 'bigger') this.fmtApply({ s: Math.min(240, Math.round(cur.s + (cur.s >= 40 ? 6 : 3))) });
+            else if (k === 'ul' || k === 'ol') this.fmtList(k);
+            else if (k === 'sym') fmtEl.querySelector('.bd-sym').classList.toggle('open');
+            else if (k === 'done') this.closeEditor(true);
+        });
+        q('.bd-f-font').addEventListener('change', e => this.fmtApply({ f: e.target.value }));
+        q('.bd-f-size').addEventListener('change', e => { const v = Math.max(8, Math.min(240, parseInt(e.target.value, 10) || 0)); if (v) this.fmtApply({ s: v }); });
         if (this.isT) {
             q('.bd-allow').addEventListener('change', e => { this.allow = e.target.checked; this.emit({ t: 'cfg', allow: this.allow }); this.refreshUi(); this.save(); });
             q('.bd-bg').addEventListener('change', e => { this.emit({ t: 'bg', p: this.cur, bg: e.target.value }); this.save(); });
@@ -3429,6 +3518,7 @@ class Board {
         this.canvas.style.cursor = this.tool === 'select' ? 'default' : this.tool === 'text' ? 'text' : (draw ? 'crosshair' : 'default');
         this.refreshStatus();
         this.refreshHistBtns();
+        this.refreshFmt();
     }
     refreshHistBtns() {
         const u = this.mount.querySelector('[data-act="undo"]'), r = this.mount.querySelector('[data-act="redo"]');
@@ -3477,6 +3567,7 @@ class Board {
     setColor(c) {
         this.color = c;
         const inp = this.mount.querySelector('.bd-color-input'); if (/^#[0-9a-f]{6}$/i.test(c)) inp.value = c;
+        if (this.editor) { this.editor.fmt.c = c; this.styleEditor(); this.editor.ta.focus(); }
         const o = this.selObj();
         if (o && this.isT && o.k !== 'img') { this.emit({ t: 'upd', p: this.cur, id: o.id, u: { c } }); this.save(); }
         this.refreshUi();
@@ -3789,7 +3880,14 @@ class Board {
         }
         ctx.restore();
     }
-    fontFor(o) { return `${o.s}px Inter, system-ui, -apple-system, "Segoe UI", sans-serif`; }
+    fontFor(o) { return `${o.i ? 'italic ' : ''}${o.b ? 'bold ' : ''}${o.s}px ${BD_FONTS[o.f] || BD_FONTS.sans}`; }
+    textLayout(o) {
+        const ctx = this.ctx; ctx.save(); ctx.font = this.fontFor(o);
+        const lines = String(o.t).split('\n');
+        const ws = lines.map(l => { ctx.direction = bdRtl(l) ? 'rtl' : 'ltr'; return ctx.measureText(l).width; });
+        ctx.restore();
+        return { lines, ws, W: Math.max(...ws, 10) };
+    }
     drawObj(ctx, o) {
         ctx.save();
         ctx.lineCap = 'round'; ctx.lineJoin = 'round';
@@ -3834,8 +3932,16 @@ class Board {
                 ctx.stroke(); break;
             }
             case 'text': {
-                ctx.font = this.fontFor(o); ctx.textBaseline = 'top';
-                String(o.t).split('\n').forEach((ln, i) => ctx.fillText(ln, o.x, o.y + i * o.s * 1.25));
+                const L = this.textLayout(o), lh = o.s * 1.25;
+                const al = o.al || (L.lines.every(l => !l.trim() || bdRtl(l)) ? 'right' : 'left');
+                if (o.bg) { ctx.save(); ctx.fillStyle = o.bg; ctx.globalAlpha = 0.85; ctx.fillRect(o.x - 6, o.y - 3, L.W + 12, L.lines.length * lh + 4); ctx.restore(); ctx.fillStyle = o.c; }
+                ctx.font = this.fontFor(o); ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+                L.lines.forEach((ln, i) => {
+                    const w = L.ws[i], x = al === 'center' ? o.x + (L.W - w) / 2 : al === 'right' ? o.x + L.W - w : o.x, y = o.y + i * lh;
+                    ctx.direction = bdRtl(ln) ? 'rtl' : 'ltr';
+                    ctx.fillText(ln, x, y);
+                    if (o.u && ln.trim()) { ctx.lineWidth = Math.max(1, o.s / 14); ctx.beginPath(); ctx.moveTo(x, y + o.s * 1.08); ctx.lineTo(x + w, y + o.s * 1.08); ctx.stroke(); }
+                });
                 break;
             }
             case 'img': {
@@ -3858,13 +3964,7 @@ class Board {
         return null;
     }
     triPts(o) { return [[(o.x1 + o.x2) / 2, o.y1], [o.x1, o.y2], [o.x2, o.y2]]; }
-    textSize(o) {
-        this.ctx.save(); this.ctx.font = this.fontFor(o);
-        const lines = String(o.t).split('\n');
-        const w = Math.max(...lines.map(l => this.ctx.measureText(l).width), 10);
-        this.ctx.restore();
-        return { w, h: lines.length * o.s * 1.25 };
-    }
+    textSize(o) { const L = this.textLayout(o); return { w: L.W, h: L.lines.length * o.s * 1.25 }; }
     bounds(o) {
         switch (o.k) {
             case 'pen': { let x1 = 1e9, y1 = 1e9, x2 = -1e9, y2 = -1e9; o.pts.forEach(([x, y]) => { x1 = Math.min(x1, x); y1 = Math.min(y1, y); x2 = Math.max(x2, x); y2 = Math.max(y2, y); }); return { x: x1, y: y1, w: x2 - x1, h: y2 - y1 }; }
@@ -4076,53 +4176,140 @@ class Board {
     // ---------- text ----------
     openEditor(obj, p) {
         this.closeEditor(true);
-        const size = obj ? obj.s : 16 + this.size * 3;
         const x = obj ? obj.x : p.x, y = obj ? obj.y : p.y;
+        const fmt = obj ? { ...BD_TDEF, f: obj.f || 'sans', b: obj.b || 0, i: obj.i || 0, u: obj.u || 0, al: obj.al || '', bg: obj.bg || '', s: obj.s, c: obj.c }
+            : { ...BD_TDEF, ...this.tfmt, s: this.tsz || (16 + this.size * 3), c: this.color };
         const ta = document.createElement('textarea');
         ta.value = obj ? obj.t : '';
-        ta.rows = 1; ta.placeholder = 'Type here, Enter to finish';
+        ta.rows = 1; ta.dir = 'auto'; ta.placeholder = 'Type here...  Enter = new line';
         ta.className = 'bd-editor';
-        const cs = this.cssScale;
         Object.assign(ta.style, {
-            position: 'absolute', left: (x * cs) + 'px', top: (y * cs) + 'px',
-            font: `${size * cs}px Inter, system-ui, sans-serif`, lineHeight: '1.25', color: obj ? obj.c : this.color,
-            background: 'rgba(255,255,255,0.85)', border: '1px dashed #6366f1', outline: 'none', padding: '0', margin: '0',
+            position: 'absolute', left: (x * this.cssScale) + 'px', top: (y * this.cssScale) + 'px',
+            lineHeight: '1.25', border: '1px dashed #6366f1', outline: 'none', padding: '0', margin: '0',
             minWidth: '140px', resize: 'none', overflow: 'hidden', pointerEvents: 'auto', whiteSpace: 'pre'
         });
         const autosize = () => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; ta.style.width = Math.max(140, ta.scrollWidth + 4) + 'px'; };
+        this.editor = { ta, obj, x, y, fmt, orig: obj ? { ...fmt, t: obj.t } : null, autosize };
         ta.addEventListener('input', autosize);
         ta.addEventListener('keydown', ev => {
             ev.stopPropagation();
-            if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); this.closeEditor(true); }
+            const mod = ev.ctrlKey || ev.metaKey;
+            if (ev.key === 'Enter' && mod) { ev.preventDefault(); this.closeEditor(true); }
             else if (ev.key === 'Escape') { ev.preventDefault(); this.closeEditor(false); }
+            else if (mod && /^[biu]$/i.test(ev.key)) { ev.preventDefault(); const k = ev.key.toLowerCase(); this.fmtApply({ [k]: this.editor.fmt[k] ? 0 : 1 }); }
+            else if (ev.key === 'Enter' && !ev.shiftKey) {
+                // keep a bullet / number going on the next line; an empty item ends the list
+                const v = ta.value, st = ta.selectionStart, ls = v.lastIndexOf('\n', st - 1) + 1, line = v.slice(ls, st);
+                const m = line.match(/^(•\s|(\d+)\.\s)/);
+                if (m) {
+                    ev.preventDefault();
+                    if (line.trim() === m[1].trim()) { ta.setRangeText('', ls, st, 'end'); ta.setRangeText('\n', ta.selectionStart, ta.selectionStart, 'end'); }
+                    else { const pre = m[2] ? (parseInt(m[2], 10) + 1) + '. ' : '• '; ta.setRangeText('\n' + pre, st, ta.selectionEnd, 'end'); }
+                    autosize();
+                }
+            }
         });
-        ta.addEventListener('blur', () => this.closeEditor(true));
+        ta.addEventListener('blur', ev => {
+            const to = ev.relatedTarget;
+            if (to && this.fmtEl && this.fmtEl.contains(to)) return;      // clicking the format bar keeps the editor open
+            setTimeout(() => { if (this.editor && this.editor.ta === ta && document.activeElement !== ta && !(this.fmtEl && this.fmtEl.contains(document.activeElement))) this.closeEditor(true); }, 120);
+        });
         this.overlay.appendChild(ta);
-        this.editor = { ta, obj, x, y, size, color: obj ? obj.c : this.color };
-        autosize(); setTimeout(() => ta.focus(), 30);
+        this.styleEditor(); autosize(); setTimeout(() => ta.focus(), 30);
+        this.refreshFmt();
+    }
+    styleEditor() {
+        const ed = this.editor; if (!ed) return;
+        const f = ed.fmt, ta = ed.ta, cs = this.cssScale;
+        ta.style.font = `${f.i ? 'italic ' : ''}${f.b ? 'bold ' : ''}${f.s * cs}px ${BD_FONTS[f.f] || BD_FONTS.sans}`;
+        ta.style.lineHeight = '1.25';
+        ta.style.color = f.c;
+        ta.style.background = f.bg ? f.bg : 'rgba(255,255,255,0.85)';
+        ta.style.textDecoration = f.u ? 'underline' : 'none';
+        ta.style.textAlign = f.al || 'start';
+        ed.autosize();
     }
     closeEditor(commit) {
         const ed = this.editor; if (!ed) return;
         this.editor = null;
+        if (this.fmtEl) this.fmtEl.querySelector('.bd-sym').classList.remove('open');
         const val = ed.ta.value.replace(/\s+$/, '');
         ed.ta.remove();
+        this.refreshFmt();
         if (!commit) return;
-        const p = this.cur;
+        const p = this.cur, f = ed.fmt;
         if (ed.obj) {
-            if (val === ed.obj.t) return;
+            const to = {}, from = {};
+            if (val !== ed.obj.t) { to.t = val; from.t = ed.obj.t; }
+            for (const k of ['f', 'b', 'i', 'u', 'al', 'bg', 's', 'c']) if (f[k] !== ed.orig[k]) { to[k] = f[k]; from[k] = ed.orig[k]; }
+            if (!Object.keys(to).length) return;
             if (!val) { this.pushHist({ a: 'del', p, os: [JSON.parse(JSON.stringify(ed.obj))] }); this.emit({ t: 'del', p, ids: [ed.obj.id] }); }
-            else {
-                const old = ed.obj.t;
-                this.pushHist({ a: 'upd', p, id: ed.obj.id, from: { t: old }, to: { t: val } });
-                this.emit({ t: 'upd', p, id: ed.obj.id, u: { t: val } });
-            }
+            else { this.pushHist({ a: 'upd', p, id: ed.obj.id, from, to }); this.emit({ t: 'upd', p, id: ed.obj.id, u: to }); }
         } else if (val) {
-            const o = { id: newId(), k: 'text', c: ed.color, s: ed.size, t: val, x: ed.x, y: ed.y, by: this.by() };
+            const o = { id: newId(), k: 'text', c: f.c, s: f.s, t: val, x: ed.x, y: ed.y, by: this.by() };
+            for (const k of ['f', 'b', 'i', 'u', 'al', 'bg']) if (f[k] && f[k] !== BD_TDEF[k]) o[k] = f[k];
             this.redoS = [];
             this.pushHist({ a: 'add', p, o: JSON.parse(JSON.stringify(o)) });
             this.emit({ t: 'add', p, o });
         }
         this.save();
+    }
+
+    // ---------- text formatting bar ----------
+    fmtTarget() {
+        if (this.editor) return { ed: this.editor };
+        const o = this.selObj();
+        if (o && o.k === 'text' && this.canDraw()) return { obj: o };
+        return null;
+    }
+    fmtCurrent() {
+        const t = this.fmtTarget();
+        if (t && t.ed) return t.ed.fmt;
+        if (t && t.obj) { const o = t.obj; return { ...BD_TDEF, f: o.f || 'sans', b: o.b || 0, i: o.i || 0, u: o.u || 0, al: o.al || '', bg: o.bg || '', s: o.s, c: o.c }; }
+        return { ...BD_TDEF, ...this.tfmt, s: this.tsz || (16 + this.size * 3), c: this.color };
+    }
+    fmtApply(patch) {
+        const t = this.fmtTarget();
+        if (t && t.ed) { Object.assign(t.ed.fmt, patch); this.styleEditor(); t.ed.ta.focus(); }
+        else if (t && t.obj) {
+            const o = t.obj, from = {}, to = {};
+            for (const k of Object.keys(patch)) { const old = o[k] === undefined ? (k === 'al' || k === 'bg' ? '' : BD_TDEF[k]) : o[k]; if (old !== patch[k]) { from[k] = old; to[k] = patch[k]; } }
+            if (Object.keys(to).length) {
+                this.pushHist({ a: 'upd', p: this.cur, id: o.id, from, to });
+                this.emit({ t: 'upd', p: this.cur, id: o.id, u: to }); this.save(); this.refreshHistBtns();
+            }
+        }
+        for (const k of Object.keys(patch)) { if (k === 's') this.tsz = patch.s; else if (k in BD_TDEF && k !== 'al') this.tfmt[k] = patch[k]; }
+        this.refreshFmt(); this.schedule();
+    }
+    fmtList(kind) {
+        const t = this.fmtTarget();
+        if (t && t.ed) {
+            const ta = t.ed.ta, v = bdListText(ta.value, ta.selectionStart, ta.selectionEnd, kind);
+            ta.value = v; t.ed.autosize(); ta.focus();
+        } else if (t && t.obj) {
+            const o = t.obj, v = bdListText(o.t, 0, o.t.length, kind);
+            this.pushHist({ a: 'upd', p: this.cur, id: o.id, from: { t: o.t }, to: { t: v } });
+            this.emit({ t: 'upd', p: this.cur, id: o.id, u: { t: v } }); this.save(); this.refreshHistBtns();
+        } else this.showToast('Click on the board with the Text tool first, then press the list button.');
+    }
+    insertSymbol(sym) {
+        const ed = this.editor;
+        if (!ed) { this.showToast('Open a text box first (Text tool, click on the board), then pick a symbol.'); return; }
+        const ta = ed.ta; ta.setRangeText(sym, ta.selectionStart, ta.selectionEnd, 'end'); ed.autosize(); ta.focus();
+    }
+    refreshFmt() {
+        const bar = this.fmtEl; if (!bar) return;
+        const show = this.canDraw() && (this.tool === 'text' || !!this.editor || !!this.fmtTarget());
+        bar.classList.toggle('hidden', !show);
+        if (!show) { bar.querySelector('.bd-sym').classList.remove('open'); return; }
+        const f = this.fmtCurrent();
+        bar.querySelector('.bd-f-font').value = f.f;
+        const si = bar.querySelector('.bd-f-size'); if (document.activeElement !== si) si.value = Math.round(f.s);
+        bar.querySelectorAll('[data-fmt="b"],[data-fmt="i"],[data-fmt="u"]').forEach(btn => btn.classList.toggle('on', !!f[btn.dataset.fmt]));
+        bar.querySelectorAll('[data-fmt^="al-"]').forEach(btn => btn.classList.toggle('on', f.al === btn.dataset.fmt.slice(3)));
+        bar.querySelectorAll('[data-hl]').forEach(btn => btn.classList.toggle('on', btn.dataset.hl === (f.bg || '')));
+        bar.querySelector('.bd-f-done').classList.toggle('hidden', !this.editor);
     }
 
     // ---------- images ----------
