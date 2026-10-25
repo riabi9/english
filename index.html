@@ -54,6 +54,7 @@
         .bd-fb { min-width:30px; height:30px; padding:0 7px; border-radius:7px; border:1px solid #d1d5db; background:#fff; color:#374151; font-size:14px; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; }
         .bd-fb:hover { background:#eef2ff; }
         .bd-fb.on { background:#4f46e5; color:#fff; border-color:#4f46e5; }
+        .bd-editor:empty:before { content: attr(data-ph); color:#9ca3af; }
         .bd-hl { width:22px; height:22px; border-radius:6px; border:2px solid #d1d5db; cursor:pointer; padding:0; }
         .bd-hl.on { border-color:#4f46e5; box-shadow:0 0 0 2px #c7d2fe; }
         .bd-sym { position:absolute; z-index:30; left:8px; top:100%; margin-top:4px; width:min(340px, 92%); background:#fff; border:1px solid #d1d5db; border-radius:10px; box-shadow:0 10px 25px rgba(0,0,0,.15); padding:8px; display:none; max-height:260px; overflow:auto; }
@@ -3262,27 +3263,157 @@ const BD_FONTS = {
     ar: '"Noto Naskh Arabic", "Traditional Arabic", Tahoma, serif'
 };
 const BD_HL = ['', '#fde68a', '#bbf7d0', '#fbcfe8', '#bfdbfe'];
+const BD_LAYC = new WeakMap();
 const BD_TDEF = { f: 'sans', b: 0, i: 0, u: 0, al: '', bg: '' };
 const BD_SYMBOLS = ['\u026A', 'i\u02D0', '\u028A', 'u\u02D0', 'e', '\u0259', '\u025C\u02D0', '\u0254\u02D0', '\u00E6', '\u028C', '\u0251\u02D0', '\u0252', 'a\u026A', 'e\u026A', '\u0254\u026A', '\u0259\u028A', 'a\u028A', '\u026A\u0259', 'e\u0259', '\u028A\u0259',
     '\u03B8', '\u00F0', '\u0283', '\u0292', 't\u0283', 'd\u0292', '\u014B', '\u02C8', '\u02CC', '\u02D0', '\u00B7',
     '\u2713', '\u2717', '\u2192', '\u2190', '\u2191', '\u2193', '\u21D2', '\u2605', '\u25CF', '\u2022', '\u2014', '\u2026', '\u00B0', '\u00BD', '\u00BF', '\u00AB', '\u00BB', '\u00B2', '\u00B3', '\u2260', '\u2248', '\u00D7', '\u00F7', '\u00E9', '\u00E8', '\u00E0', '\u00E7', '\u00EA', '\u00F4', '\u00FB'];
 const bdRtl = s => /[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/.test(s);
-function bdListText(text, a, b, kind) {
-    // add / remove "• " or "1. " on the lines touched by the selection [a, b]
-    const lines = text.split('\n'); let pos = 0, first = -1, last = -1;
-    lines.forEach((ln, i) => { const s0 = pos, e0 = pos + ln.length; if (e0 >= a && s0 <= b) { if (first < 0) first = i; last = i; } pos = e0 + 1; });
+// ----- rich text helpers (runs = [{s,e,c?,b?,i?,u?,bg?}] over the plain text t) -----
+const bdHex = rgb => {
+    const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/.exec(rgb || '');
+    if (!m || (m[4] !== undefined && +m[4] === 0)) return '';
+    return '#' + [m[1], m[2], m[3]].map(x => (+x).toString(16).padStart(2, '0')).join('');
+};
+// read an editable element back into plain text + runs; marks = [[node, offset], ...] -> at[] = char offsets
+function bdExtract(root, base, marks) {
+    let t = ''; const raw = []; const at = (marks || []).map(() => null);
+    const BLOCK = /^(DIV|P|LI|UL|OL|H[1-6]|TR)$/;
+    const under = el => { for (let e = el; e; e = e.parentElement) { if (/underline/.test(getComputedStyle(e).textDecorationLine || '')) return 1; if (e === root) break; } return 0; };
+    const markAt = (node, off, pos) => { (marks || []).forEach((m, i) => { if (at[i] === null && m[0] === node && m[1] === off) at[i] = pos; }); };
+    const addText = (str, node) => {
+        const el = node.parentElement || root, cs = getComputedStyle(el);
+        const st = { c: bdHex(cs.color) || base.c, b: (parseInt(cs.fontWeight, 10) || 400) >= 600 ? 1 : 0, i: /italic|oblique/.test(cs.fontStyle) ? 1 : 0, u: under(el), bg: el === root ? '' : bdHex(cs.backgroundColor) };
+        const run = {}; let diff = false;
+        if (st.c !== base.c) { run.c = st.c; diff = true; }
+        if (st.b !== (base.b || 0)) { run.b = st.b; diff = true; }
+        if (st.i !== (base.i || 0)) { run.i = st.i; diff = true; }
+        if (st.u !== (base.u || 0)) { run.u = st.u; diff = true; }
+        if (st.bg) { run.bg = st.bg; diff = true; }
+        if (diff && str.replace(/\n/g, '').length) raw.push({ s: t.length, e: t.length + str.length, ...run });
+        t += str;
+    };
+    const walk = node => {
+        if (node.nodeType === 3) {
+            (marks || []).forEach((m, i) => { if (at[i] === null && m[0] === node) at[i] = t.length + Math.min(m[1], node.nodeValue.length); });
+            addText(node.nodeValue.replace(/ /g, ' ').replace(/​/g, ''), node); return;
+        }
+        if (node.nodeType !== 1) return;
+        if (node.tagName === 'BR') { markAt(node, 0, t.length); t += '\n'; return; }
+        const blk = BLOCK.test(node.tagName) && node !== root;
+        if (blk && t && !t.endsWith('\n')) t += '\n';
+        node.childNodes.forEach((ch, idx) => { markAt(node, idx, t.length); walk(ch); });
+        markAt(node, node.childNodes.length, t.length);
+        if (blk && node.nextSibling && t && !t.endsWith('\n')) t += '\n';
+    };
+    walk(root);
+    const keep = t.replace(/\s+$/, '').length;
+    const runs = [];
+    for (const r of raw) {
+        if (r.s >= keep) continue; r.e = Math.min(r.e, keep);
+        const last = runs[runs.length - 1];
+        if (last && last.e === r.s && ['c', 'b', 'i', 'u', 'bg'].every(k => last[k] === r[k])) last.e = r.e; else runs.push(r);
+    }
+    return { t: t.slice(0, keep), rs: runs, at };
+}
+function bdRunStyle(r) {
+    if (!r) return '';
+    return (r.c ? `color:${r.c};` : '') + (r.b !== undefined ? `font-weight:${r.b ? 700 : 400};` : '') + (r.i !== undefined ? `font-style:${r.i ? 'italic' : 'normal'};` : '') + (r.u ? 'text-decoration:underline;' : '') + (r.bg ? `background-color:${r.bg};` : '');
+}
+function bdBuildDom(root, t, rs) {
+    root.textContent = '';
+    const pts = new Set([0, t.length]); (rs || []).forEach(r => { pts.add(Math.max(0, r.s)); pts.add(Math.min(t.length, r.e)); });
+    const arr = [...pts].sort((a, b) => a - b);
+    for (let k = 0; k + 1 < arr.length; k++) {
+        const a = arr[k], b = arr[k + 1]; if (b <= a) continue;
+        const run = (rs || []).find(r => r.s <= a && r.e >= b);
+        const parts = t.slice(a, b).split('\n');
+        const holder = run ? document.createElement('span') : null;
+        if (holder) holder.setAttribute('style', bdRunStyle(run));
+        parts.forEach((p, j) => {
+            if (j > 0) (holder || root).appendChild(document.createElement('br'));
+            if (p) (holder || root).appendChild(document.createTextNode(p));
+        });
+        if (holder) root.appendChild(holder);
+    }
+}
+function bdLocate(root, offset) {      // char offset -> [node, offset] in a DOM made by bdBuildDom
+    let pos = 0, last = [root, 0];
+    const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
+    let n;
+    while ((n = w.nextNode())) {
+        if (n.nodeType === 3) { const len = n.nodeValue.length; if (offset <= pos + len) return [n, offset - pos]; pos += len; last = [n, len]; }
+        else if (n.tagName === 'BR') { if (offset <= pos) { const p = n.parentNode; return [p, Array.prototype.indexOf.call(p.childNodes, n)]; } pos += 1; const p = n.parentNode; last = [p, Array.prototype.indexOf.call(p.childNodes, n) + 1]; }
+    }
+    return last;
+}
+function bdSetSel(root, a, b) {
+    const s = getSelection(), r = document.createRange();
+    const A = bdLocate(root, a), B = b === undefined ? A : bdLocate(root, b);
+    r.setStart(A[0], A[1]); r.setEnd(B[0], B[1]); s.removeAllRanges(); s.addRange(r);
+}
+// pasted HTML -> safe html (colours, bold, italic, underline, highlight, line breaks only)
+function bdSanitizeHtml(html) {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const okColor = v => /^(#[0-9a-f]{3,8}|rgba?\([\d\s,.%]+\))$/i.test((v || '').trim()) ? v.trim() : '';
+    const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    let out = '';
+    const nl = () => { if (out && !/<br>$/.test(out)) out += '<br>'; };
+    const walk = (n, inh) => {
+        if (n.nodeType === 3) { const v = n.nodeValue.replace(/\s+/g, ' '); if (v.trim() || (v === ' ' && out && !/<br>$/.test(out))) out += wrap(esc(v), inh); return; }
+        if (n.nodeType !== 1) return;
+        const tag = n.tagName;
+        if (/^(SCRIPT|STYLE|HEAD|META|TITLE|NOSCRIPT|IMG|SVG)$/.test(tag)) return;
+        if (tag === 'BR') { out += '<br>'; return; }
+        const st = { ...inh }, cs = n.style || {};
+        if (/^(B|STRONG)$/.test(tag) || /^(bold|[6-9]00)$/.test(cs.fontWeight || '')) st.b = 1;
+        if (/^(I|EM)$/.test(tag) || /italic/.test(cs.fontStyle || '')) st.i = 1;
+        if (tag === 'U' || /underline/.test(cs.textDecoration || cs.textDecorationLine || '')) st.u = 1;
+        const c = okColor(cs.color) || (tag === 'FONT' ? okColor(n.getAttribute('color')) : ''); if (c) st.c = c;
+        const bg = okColor(cs.backgroundColor); if (bg && !/^(#fff(fff)?|rgb\(255,\s*255,\s*255\))$/i.test(bg)) st.bg = bg;
+        if (tag === 'MARK') st.bg = st.bg || '#fde68a';
+        const block = /^(P|DIV|H[1-6]|LI|TR|UL|OL|BLOCKQUOTE|TABLE|SECTION|ARTICLE|PRE)$/.test(tag);
+        if (block) nl();
+        if (tag === 'LI') out += '• ';
+        n.childNodes.forEach(ch => walk(ch, st));
+        if (block) nl();
+        if (/^(TD|TH)$/.test(tag) && n.nextElementSibling) out += ' &nbsp; ';
+    };
+    const wrap = (txt, st) => {
+        const css = (st.c ? `color:${st.c};` : '') + (st.b ? 'font-weight:700;' : '') + (st.i ? 'font-style:italic;' : '') + (st.u ? 'text-decoration:underline;' : '') + (st.bg ? `background-color:${st.bg};` : '');
+        return css ? `<span style="${css}">${txt}</span>` : txt;
+    };
+    walk(doc.body, {});
+    return out.replace(/(<br>)+$/, '');
+}
+// shift runs after an edit at position p (deleted `del` chars, inserted `ins` chars)
+function bdEditRuns(rs, p, del, ins) {
+    const out = [], map = x => x <= p ? x : x >= p + del ? x - del : p;
+    for (const r of rs || []) {
+        let s = del ? map(r.s) : r.s, e = del ? map(r.e) : r.e;
+        if (ins) { if (s >= p) s += ins; if (e > p) e += ins; }
+        if (e > s) out.push({ ...r, s, e });
+    }
+    return out;
+}
+function bdListEdit(text, rs, a, b, kind) {
+    const lines = text.split('\n'); let pos = 0, first = -1, last = -1; const starts = [];
+    lines.forEach((ln, i) => { starts.push(pos); const e0 = pos + ln.length; if (e0 >= a && pos <= b) { if (first < 0) first = i; last = i; } pos = e0 + 1; });
     if (first < 0) { first = last = lines.length - 1; }
-    const re = kind === 'ul' ? /^\u2022\s/ : /^\d+\.\s/;
+    const re = kind === 'ul' ? /^•\s/ : /^\d+\.\s/;
     const idx = []; for (let i = first; i <= last; i++) idx.push(i);
     const filled = idx.filter(i => lines[i].trim());
     const allHave = filled.length > 0 && filled.every(i => re.test(lines[i]));
-    let n = 1;
+    // build edits then apply from the end so earlier offsets stay valid
+    const edits = []; let n = 1;
     idx.forEach(i => {
-        const clean = lines[i].replace(/^(\u2022|\d+\.)\s/, '');
-        if (allHave) lines[i] = clean;
-        else lines[i] = (kind === 'ul' ? '\u2022 ' : (n++) + '. ') + clean;
+        const m = lines[i].match(/^(•|\d+\.)\s/), del = m ? m[0].length : 0;
+        if (allHave) { if (del) edits.push({ p: starts[i], del, ins: '' }); }
+        else if (lines[i].trim() || filled.length === 0) edits.push({ p: starts[i], del, ins: kind === 'ul' ? '• ' : (n++) + '. ' });
     });
-    return lines.join('\n');
+    let t = text, r = rs || [];
+    edits.sort((x, y) => y.p - x.p).forEach(ed => { t = t.slice(0, ed.p) + ed.ins + t.slice(ed.p + ed.del); r = bdEditRuns(r, ed.p, ed.del, ed.ins.length); });
+    return { t, rs: r };
 }
 
 // ----- the board -----
@@ -3318,7 +3449,8 @@ class Board {
                 </div>
                 <div class="flex flex-wrap items-center gap-2">
                     ${T ? `<label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none"><input type="checkbox" class="bd-allow w-4 h-4"> Let students draw</label>
-                           <button type="button" class="bd-text-btn" data-act="clrstu">Clear student drawings</button>` : `<button type="button" class="bd-text-btn bd-hand" data-act="hand">&#9995; Raise hand</button>`}
+                           <button type="button" class="bd-text-btn" data-act="clrstu">Clear student drawings</button>
+                            <button type="button" class="bd-text-btn" data-act="savebd" title="Save this board for later, open saved boards, export or import a file">Save / Open</button>` : `<button type="button" class="bd-text-btn bd-hand" data-act="hand">&#9995; Raise hand</button>`}
                     ${act('download', 'download', 'Save this page as an image')}
                     ${act('zoom', 'zoom', 'Zoom the board (scroll sideways to move around)', 'md:hidden')}
                     ${act('full', 'full', 'Fullscreen')}
@@ -3344,6 +3476,7 @@ class Board {
                     <label class="flex items-center gap-1 text-xs text-gray-600 cursor-pointer select-none" title="Fill shapes"><input type="checkbox" class="bd-fill w-3.5 h-3.5"> Fill</label>
                     <span class="bd-sep"></span>
                     ${act('undo', 'undo', 'Undo (Ctrl+Z)')}${act('redo', 'redo', 'Redo (Ctrl+Y)')}
+                    <button type="button" class="bd-fb" data-act="paste" title="Paste text or an image from the clipboard (or press Ctrl+V)">Paste</button>
                     ${T ? act('clear', 'trash', 'Clear this page', 'bd-danger') : ''}
                 </div>
             </div>
@@ -3366,10 +3499,14 @@ class Board {
                     <button type="button" class="bd-fb" data-fmt="ul" title="Bullet list">&bull; List</button>
                     <button type="button" class="bd-fb" data-fmt="ol" title="Numbered list">1. List</button>
                     <span class="bd-sep"></span>
-                    <span class="text-xs text-gray-500">Highlight</span>
+                    <span class="text-xs text-gray-500" title="Select some words in the text box first to colour only those words">Colour / highlight words:</span>
                     ${BD_HL.map(c => `<button type="button" class="bd-hl" data-hl="${c}" style="background:${c || 'repeating-linear-gradient(45deg,#fff,#fff 3px,#e5e7eb 3px,#e5e7eb 5px)'}" title="${c ? 'Highlight' : 'No highlight'}"></button>`).join('')}
                     <span class="bd-sep"></span>
+                    <select class="bd-f-wrap border border-gray-300 rounded-md px-1.5 py-1 bg-white text-sm" title="Box width: wrap long text">
+                        <option value="">Width: auto</option><option value="400">Narrow</option><option value="600">Medium</option><option value="800">Wide</option><option value="1000">Wider</option><option value="1300">Full</option>
+                    </select>
                     <button type="button" class="bd-fb" data-fmt="sym" title="Symbols and phonetic (IPA) characters">&Omega; Symbols</button>
+                    <span class="bd-f-scope text-[11px] font-semibold text-indigo-600"></span>
                     <button type="button" class="bd-fb bd-f-done hidden" data-fmt="done" style="background:#16a34a;color:#fff;border-color:#16a34a" title="Finish editing (Ctrl+Enter)">&#10003; Done</button>
                     <div class="bd-sym">${BD_SYMBOLS.map(x => `<button type="button" data-sym="${x}">${x}</button>`).join('')}</div>
                 </div>
@@ -3435,6 +3572,10 @@ class Board {
             else if (k === 'done') this.closeEditor(true);
         });
         q('.bd-f-font').addEventListener('change', e => this.fmtApply({ f: e.target.value }));
+        q('.bd-f-wrap').addEventListener('change', e => this.fmtApply({ w: parseInt(e.target.value, 10) || 0 }));
+        q('.bd-tools').addEventListener('mousedown', e => { if (this.editor && e.target.closest('button, .bd-color')) e.preventDefault(); });
+        this._sel = () => { if (this.editor) { this.snapRange(); this.refreshFmt(); } };
+        document.addEventListener('selectionchange', this._sel);
         q('.bd-f-size').addEventListener('change', e => { const v = Math.max(8, Math.min(240, parseInt(e.target.value, 10) || 0)); if (v) this.fmtApply({ s: v }); });
         if (this.isT) {
             q('.bd-allow').addEventListener('change', e => { this.allow = e.target.checked; this.emit({ t: 'cfg', allow: this.allow }); this.refreshUi(); this.save(); });
@@ -3567,7 +3708,7 @@ class Board {
     setColor(c) {
         this.color = c;
         const inp = this.mount.querySelector('.bd-color-input'); if (/^#[0-9a-f]{6}$/i.test(c)) inp.value = c;
-        if (this.editor) { this.editor.fmt.c = c; this.styleEditor(); this.editor.ta.focus(); }
+        if (this.editor) { this.fmtApply({ c }); this.refreshUi(); return; }
         const o = this.selObj();
         if (o && this.isT && o.k !== 'img') { this.emit({ t: 'upd', p: this.cur, id: o.id, u: { c } }); this.save(); }
         this.refreshUi();
@@ -3580,6 +3721,8 @@ class Board {
             case 'clear': this.clearPage(); break;
             case 'clrstu': if (confirm("Remove everything the students drew?")) { this.emit({ t: 'clrs' }); this.save(); } break;
             case 'download': this.download(); break;
+            case 'paste': this.pasteFromButton(); break;
+            case 'savebd': this.openSaveDialog(); break;
             case 'full': this.toggleFull(); break;
             case 'zoom': this.zoomed = !this.zoomed; this.mount.querySelector('[data-act="zoom"]').classList.toggle('on', this.zoomed); this.fit(); break;
             case 'image': this.mount.querySelector('.bd-file').click(); break;
@@ -3800,6 +3943,7 @@ class Board {
         this.leave(true);
         document.removeEventListener('keydown', this._key);
         document.removeEventListener('paste', this._paste);
+        document.removeEventListener('selectionchange', this._sel);
         window.removeEventListener('resize', this._res);
         document.removeEventListener('fullscreenchange', this._res);
         if (this.ro) this.ro.disconnect();
@@ -3882,11 +4026,42 @@ class Board {
     }
     fontFor(o) { return `${o.i ? 'italic ' : ''}${o.b ? 'bold ' : ''}${o.s}px ${BD_FONTS[o.f] || BD_FONTS.sans}`; }
     textLayout(o) {
-        const ctx = this.ctx; ctx.save(); ctx.font = this.fontFor(o);
-        const lines = String(o.t).split('\n');
-        const ws = lines.map(l => { ctx.direction = bdRtl(l) ? 'rtl' : 'ltr'; return ctx.measureText(l).width; });
+        const sig = [o.t, o.rs ? JSON.stringify(o.rs) : '', o.s, o.f, o.b, o.i, o.u, o.w, o.c].join('\u0001');
+        const hit = BD_LAYC.get(o); if (hit && hit.sig === sig) return hit.lay;
+        const ctx = this.ctx; ctx.save();
+        const t = String(o.t), lh = o.s * 1.25, rs = (o.rs || []).slice().sort((a, b) => a.s - b.s);
+        const base = r => ({ c: r && r.c !== undefined ? r.c : o.c, b: r && r.b !== undefined ? r.b : (o.b || 0), i: r && r.i !== undefined ? r.i : (o.i || 0), u: r && r.u !== undefined ? r.u : (o.u || 0), bg: (r && r.bg) || '' });
+        const chunks = []; let pos = 0;
+        const push = (a, b, r) => { if (b > a) chunks.push({ a, b, st: base(r) }); };
+        for (const r of rs) { if (r.s > pos) push(pos, r.s, null); const st = Math.max(r.s, pos); push(st, r.e, r); pos = Math.max(pos, r.e); }
+        push(pos, t.length, null);
+        const paras = [[]];
+        for (const ch of chunks) t.slice(ch.a, ch.b).split('\n').forEach((part, k) => { if (k > 0) paras.push([]); if (part) paras[paras.length - 1].push({ text: part, st: ch.st }); });
+        const meas = (text, st, rtl) => { ctx.font = this.fontFor({ s: o.s, f: o.f, b: st.b, i: st.i }); ctx.direction = rtl ? 'rtl' : 'ltr'; return ctx.measureText(text).width; };
+        const maxW = o.w > 0 ? o.w : 0, lines = [];
+        const trim = ln => { while (ln.segs.length && /^\s+$/.test(ln.segs[ln.segs.length - 1].text)) ln.segs.pop(); ln.w = ln.segs.reduce((a, x) => a + x.w, 0); };
+        for (const para of paras) {
+            const rtl = bdRtl(para.map(x => x.text).join(''));
+            if (!maxW) { const segs = para.map(x => ({ text: x.text, st: x.st, w: meas(x.text, x.st, rtl) })); lines.push({ segs, w: segs.reduce((a, x) => a + x.w, 0), rtl }); continue; }
+            const units = []; let cur = null, curSp = null;
+            for (const x of para) for (const part of x.text.split(/(\s+)/)) {
+                if (!part) continue;
+                const sp = /^\s+$/.test(part), seg = { text: part, st: x.st, w: meas(part, x.st, rtl) };
+                if (cur && curSp === sp) cur.push(seg); else { cur = [seg]; curSp = sp; units.push({ segs: cur, sp }); }
+            }
+            let line = { segs: [], w: 0, rtl };
+            for (const u of units) {
+                const uw = u.segs.reduce((a, x) => a + x.w, 0);
+                if (!u.sp && line.w + uw > maxW && line.segs.length) { trim(line); lines.push(line); line = { segs: [], w: 0, rtl }; }
+                if (u.sp && !line.segs.length) continue;
+                line.segs.push(...u.segs); line.w += uw;
+            }
+            trim(line); lines.push(line);
+        }
         ctx.restore();
-        return { lines, ws, W: Math.max(...ws, 10) };
+        const lay = { lines, lh, W: maxW || Math.max(...lines.map(l => l.w), 10), H: lines.length * lh };
+        BD_LAYC.set(o, { sig, lay });
+        return lay;
     }
     drawObj(ctx, o) {
         ctx.save();
@@ -3932,15 +4107,23 @@ class Board {
                 ctx.stroke(); break;
             }
             case 'text': {
-                const L = this.textLayout(o), lh = o.s * 1.25;
-                const al = o.al || (L.lines.every(l => !l.trim() || bdRtl(l)) ? 'right' : 'left');
-                if (o.bg) { ctx.save(); ctx.fillStyle = o.bg; ctx.globalAlpha = 0.85; ctx.fillRect(o.x - 6, o.y - 3, L.W + 12, L.lines.length * lh + 4); ctx.restore(); ctx.fillStyle = o.c; }
-                ctx.font = this.fontFor(o); ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+                const L = this.textLayout(o), lh = L.lh;
+                const al = o.al || (L.lines.every(l => !l.segs.length || l.rtl) ? 'right' : 'left');
+                if (o.bg) { ctx.save(); ctx.fillStyle = o.bg; ctx.globalAlpha = 0.85; ctx.fillRect(o.x - 6, o.y - 3, L.W + 12, L.H + 4); ctx.restore(); }
+                ctx.textBaseline = 'top'; ctx.textAlign = 'left';
                 L.lines.forEach((ln, i) => {
-                    const w = L.ws[i], x = al === 'center' ? o.x + (L.W - w) / 2 : al === 'right' ? o.x + L.W - w : o.x, y = o.y + i * lh;
-                    ctx.direction = bdRtl(ln) ? 'rtl' : 'ltr';
-                    ctx.fillText(ln, x, y);
-                    if (o.u && ln.trim()) { ctx.lineWidth = Math.max(1, o.s / 14); ctx.beginPath(); ctx.moveTo(x, y + o.s * 1.08); ctx.lineTo(x + w, y + o.s * 1.08); ctx.stroke(); }
+                    const y = o.y + i * lh;
+                    const x0 = al === 'center' ? o.x + (L.W - ln.w) / 2 : al === 'right' ? o.x + L.W - ln.w : o.x;
+                    let x = ln.rtl ? x0 + ln.w : x0;
+                    for (const sg of ln.segs) {
+                        const sx = ln.rtl ? x - sg.w : x;
+                        if (sg.st.bg) { ctx.save(); ctx.fillStyle = sg.st.bg; ctx.globalAlpha = 0.85; ctx.fillRect(sx, y - 1, sg.w, lh + 1); ctx.restore(); }
+                        ctx.font = this.fontFor({ s: o.s, f: o.f, b: sg.st.b, i: sg.st.i });
+                        ctx.fillStyle = sg.st.c; ctx.strokeStyle = sg.st.c; ctx.direction = ln.rtl ? 'rtl' : 'ltr';
+                        ctx.fillText(sg.text, sx, y);
+                        if (sg.st.u && sg.text.trim()) { ctx.lineWidth = Math.max(1, o.s / 14); ctx.beginPath(); ctx.moveTo(sx, y + o.s * 1.08); ctx.lineTo(sx + sg.w, y + o.s * 1.08); ctx.stroke(); }
+                        x = ln.rtl ? x - sg.w : x + sg.w;
+                    }
                 });
                 break;
             }
@@ -3964,7 +4147,7 @@ class Board {
         return null;
     }
     triPts(o) { return [[(o.x1 + o.x2) / 2, o.y1], [o.x1, o.y2], [o.x2, o.y2]]; }
-    textSize(o) { const L = this.textLayout(o); return { w: L.W, h: L.lines.length * o.s * 1.25 }; }
+    textSize(o) { const L = this.textLayout(o); return { w: L.W, h: L.H }; }
     bounds(o) {
         switch (o.k) {
             case 'pen': { let x1 = 1e9, y1 = 1e9, x2 = -1e9, y2 = -1e9; o.pts.forEach(([x, y]) => { x1 = Math.min(x1, x); y1 = Math.min(y1, y); x2 = Math.max(x2, x); y2 = Math.max(y2, y); }); return { x: x1, y: y1, w: x2 - x1, h: y2 - y1 }; }
@@ -4017,7 +4200,7 @@ class Board {
     // ---------- pointer input ----------
     pt(e) {
         const r = this.canvas.getBoundingClientRect();
-        return { x: Math.round((e.clientX - r.left) / r.width * BD.W * 10) / 10, y: Math.round((e.clientY - r.top) / r.height * BD.H * 10) / 10 };
+        return (this.lastPt = { x: Math.round((e.clientX - r.left) / r.width * BD.W * 10) / 10, y: Math.round((e.clientY - r.top) / r.height * BD.H * 10) / 10 });
     }
     hitR() { return 10 / this.cssScale; }   // ~10 screen px
     queue() { if (!this.flushT) this.flushT = setTimeout(() => this.flush(), 80); }
@@ -4174,48 +4357,32 @@ class Board {
     }
 
     // ---------- text ----------
-    openEditor(obj, p) {
+    openEditor(obj, p, init) {
         this.closeEditor(true);
         const x = obj ? obj.x : p.x, y = obj ? obj.y : p.y;
-        const fmt = obj ? { ...BD_TDEF, f: obj.f || 'sans', b: obj.b || 0, i: obj.i || 0, u: obj.u || 0, al: obj.al || '', bg: obj.bg || '', s: obj.s, c: obj.c }
-            : { ...BD_TDEF, ...this.tfmt, s: this.tsz || (16 + this.size * 3), c: this.color };
-        const ta = document.createElement('textarea');
-        ta.value = obj ? obj.t : '';
-        ta.rows = 1; ta.dir = 'auto'; ta.placeholder = 'Type here...  Enter = new line';
-        ta.className = 'bd-editor';
-        Object.assign(ta.style, {
-            position: 'absolute', left: (x * this.cssScale) + 'px', top: (y * this.cssScale) + 'px',
-            lineHeight: '1.25', border: '1px dashed #6366f1', outline: 'none', padding: '0', margin: '0',
-            minWidth: '140px', resize: 'none', overflow: 'hidden', pointerEvents: 'auto', whiteSpace: 'pre'
-        });
-        const autosize = () => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; ta.style.width = Math.max(140, ta.scrollWidth + 4) + 'px'; };
-        this.editor = { ta, obj, x, y, fmt, orig: obj ? { ...fmt, t: obj.t } : null, autosize };
-        ta.addEventListener('input', autosize);
-        ta.addEventListener('keydown', ev => {
-            ev.stopPropagation();
-            const mod = ev.ctrlKey || ev.metaKey;
-            if (ev.key === 'Enter' && mod) { ev.preventDefault(); this.closeEditor(true); }
-            else if (ev.key === 'Escape') { ev.preventDefault(); this.closeEditor(false); }
-            else if (mod && /^[biu]$/i.test(ev.key)) { ev.preventDefault(); const k = ev.key.toLowerCase(); this.fmtApply({ [k]: this.editor.fmt[k] ? 0 : 1 }); }
-            else if (ev.key === 'Enter' && !ev.shiftKey) {
-                // keep a bullet / number going on the next line; an empty item ends the list
-                const v = ta.value, st = ta.selectionStart, ls = v.lastIndexOf('\n', st - 1) + 1, line = v.slice(ls, st);
-                const m = line.match(/^(•\s|(\d+)\.\s)/);
-                if (m) {
-                    ev.preventDefault();
-                    if (line.trim() === m[1].trim()) { ta.setRangeText('', ls, st, 'end'); ta.setRangeText('\n', ta.selectionStart, ta.selectionStart, 'end'); }
-                    else { const pre = m[2] ? (parseInt(m[2], 10) + 1) + '. ' : '• '; ta.setRangeText('\n' + pre, st, ta.selectionEnd, 'end'); }
-                    autosize();
-                }
-            }
-        });
+        const fmt = obj ? { ...BD_TDEF, f: obj.f || 'sans', b: obj.b || 0, i: obj.i || 0, u: obj.u || 0, al: obj.al || '', bg: obj.bg || '', s: obj.s, c: obj.c, w: obj.w || 0 }
+            : { ...BD_TDEF, ...this.tfmt, s: this.tsz || (16 + this.size * 3), c: this.color, w: (init && init.w) || 0 };
+        const ta = document.createElement('div');
+        ta.contentEditable = 'true'; ta.spellcheck = true; ta.dir = 'auto'; ta.className = 'bd-editor';
+        ta.setAttribute('data-ph', 'Type here...  Enter = new line');
+        bdBuildDom(ta, obj ? obj.t : (init ? init.t : ''), obj ? (obj.rs || []) : (init ? init.rs || [] : []));
+        Object.assign(ta.style, { position: 'absolute', left: (x * this.cssScale) + 'px', top: (y * this.cssScale) + 'px', border: '1px dashed #6366f1', outline: 'none', padding: '0', margin: '0', minWidth: '140px', minHeight: '1.25em', pointerEvents: 'auto', overflowWrap: 'anywhere' });
+        const orig = obj ? { ...fmt, t: obj.t, rs: JSON.stringify(obj.rs || []) } : null;
+        this.editor = { ta, obj, x, y, fmt, orig, range: null };
+        ta.addEventListener('input', () => { if (!ta.textContent) ta.textContent = ''; });
+        ta.addEventListener('paste', ev => this.editorPaste(ev));
+        ta.addEventListener('keydown', ev => this.editorKey(ev));
         ta.addEventListener('blur', ev => {
-            const to = ev.relatedTarget;
-            if (to && this.fmtEl && this.fmtEl.contains(to)) return;      // clicking the format bar keeps the editor open
-            setTimeout(() => { if (this.editor && this.editor.ta === ta && document.activeElement !== ta && !(this.fmtEl && this.fmtEl.contains(document.activeElement))) this.closeEditor(true); }, 120);
+            const to = ev.relatedTarget, tools = this.mount.querySelector('.bd-tools');
+            if (to && ((this.fmtEl && this.fmtEl.contains(to)) || (tools && tools.contains(to)))) return;      // clicking the toolbars keeps the editor open
+            setTimeout(() => {
+                const ae = document.activeElement;
+                if (this.editor && this.editor.ta === ta && ae !== ta && !(this.fmtEl && this.fmtEl.contains(ae)) && !(tools && tools.contains(ae))) this.closeEditor(true);
+            }, 150);
         });
         this.overlay.appendChild(ta);
-        this.styleEditor(); autosize(); setTimeout(() => ta.focus(), 30);
+        this.styleEditor();
+        setTimeout(() => { ta.focus(); const r = document.createRange(); r.selectNodeContents(ta); r.collapse(false); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); this.editor && (this.editor.range = r.cloneRange()); }, 30);
         this.refreshFmt();
     }
     styleEditor() {
@@ -4227,27 +4394,85 @@ class Board {
         ta.style.background = f.bg ? f.bg : 'rgba(255,255,255,0.85)';
         ta.style.textDecoration = f.u ? 'underline' : 'none';
         ta.style.textAlign = f.al || 'start';
-        ed.autosize();
+        ta.style.whiteSpace = f.w ? 'pre-wrap' : 'pre';
+        ta.style.width = f.w ? (f.w * cs) + 'px' : 'max-content';
+        ta.style.maxWidth = f.w ? 'none' : '';
+    }
+    snapRange() {
+        const ed = this.editor; if (!ed) return;
+        const sel = getSelection();
+        if (sel.rangeCount && ed.ta.contains(sel.anchorNode)) ed.range = sel.getRangeAt(0).cloneRange();
+    }
+    edFocus() {
+        const ed = this.editor; if (!ed) return;
+        ed.ta.focus();
+        if (ed.range) { const sel = getSelection(); sel.removeAllRanges(); sel.addRange(ed.range); }
+    }
+    hasSel() { const ed = this.editor; return !!(ed && ed.range && !ed.range.collapsed); }
+    selCmd(cmd, val) {
+        this.edFocus();
+        try { document.execCommand('styleWithCSS', false, true); } catch (e) { }
+        document.execCommand(cmd, false, val);
+        this.snapRange(); this.refreshFmt();
+    }
+    editorBase() { const f = this.editor.fmt; return { c: f.c, b: f.b || 0, i: f.i || 0, u: f.u || 0 }; }
+    editorKey(ev) {
+        ev.stopPropagation();
+        const ed = this.editor, mod = ev.ctrlKey || ev.metaKey;
+        if (ev.key === 'Enter' && mod) { ev.preventDefault(); this.closeEditor(true); return; }
+        if (ev.key === 'Escape') { ev.preventDefault(); this.closeEditor(false); return; }
+        if (mod && /^[biu]$/i.test(ev.key)) { ev.preventDefault(); const k = ev.key.toLowerCase(); this.fmtApply({ [k]: ed.fmt[k] ? 0 : 1 }); return; }
+        if (ev.key === 'Enter') {
+            ev.preventDefault();
+            const sel = getSelection();
+            if (sel.rangeCount && sel.isCollapsed) {
+                const ex = bdExtract(ed.ta, this.editorBase(), [[sel.anchorNode, sel.anchorOffset]]), caret = ex.at[0];
+                if (caret !== null) {
+                    const ls = ex.t.lastIndexOf('\n', caret - 1) + 1, line = ex.t.slice(ls, caret), m = line.match(/^(•\s|(\d+)\.\s)/);
+                    if (m) {
+                        if (line.trim() === m[1].trim()) { bdSetSel(ed.ta, ls, caret); document.execCommand('delete'); document.execCommand('insertLineBreak'); }
+                        else { document.execCommand('insertLineBreak'); document.execCommand('insertText', false, m[2] ? (parseInt(m[2], 10) + 1) + '. ' : '• '); }
+                        this.snapRange(); return;
+                    }
+                }
+            }
+            document.execCommand('insertLineBreak'); this.snapRange();
+        }
+    }
+    editorPaste(ev) {
+        ev.preventDefault(); ev.stopPropagation();
+        const cd = ev.clipboardData; if (!cd) return;
+        const html = cd.getData('text/html'), txt = cd.getData('text/plain');
+        this.insertIntoEditor(html, txt);
+    }
+    insertIntoEditor(html, txt) {
+        this.edFocus();
+        if (html && html.trim()) { const safe = bdSanitizeHtml(html); if (safe) { document.execCommand('insertHTML', false, safe); this.snapRange(); return; } }
+        if (txt) { document.execCommand('insertText', false, String(txt).replace(/\r/g, '').slice(0, 20000)); this.snapRange(); }
     }
     closeEditor(commit) {
         const ed = this.editor; if (!ed) return;
         this.editor = null;
         if (this.fmtEl) this.fmtEl.querySelector('.bd-sym').classList.remove('open');
-        const val = ed.ta.value.replace(/\s+$/, '');
+        const f = ed.fmt, ex = bdExtract(ed.ta, { c: f.c, b: f.b || 0, i: f.i || 0, u: f.u || 0 });
+        const val = ex.t, rs = ex.rs;
         ed.ta.remove();
         this.refreshFmt();
         if (!commit) return;
-        const p = this.cur, f = ed.fmt;
+        const p = this.cur;
         if (ed.obj) {
-            const to = {}, from = {};
+            const to = {}, from = {}, o0 = ed.orig;
             if (val !== ed.obj.t) { to.t = val; from.t = ed.obj.t; }
-            for (const k of ['f', 'b', 'i', 'u', 'al', 'bg', 's', 'c']) if (f[k] !== ed.orig[k]) { to[k] = f[k]; from[k] = ed.orig[k]; }
+            if (JSON.stringify(rs) !== o0.rs) { to.rs = rs; from.rs = ed.obj.rs || []; }
+            for (const k of ['f', 'b', 'i', 'u', 'al', 'bg', 's', 'c', 'w']) if ((f[k] || 0) !== (o0[k] || 0)) { to[k] = f[k] || (k === 'al' || k === 'bg' ? '' : 0); from[k] = o0[k] || (k === 'al' || k === 'bg' ? '' : 0); }
             if (!Object.keys(to).length) return;
             if (!val) { this.pushHist({ a: 'del', p, os: [JSON.parse(JSON.stringify(ed.obj))] }); this.emit({ t: 'del', p, ids: [ed.obj.id] }); }
             else { this.pushHist({ a: 'upd', p, id: ed.obj.id, from, to }); this.emit({ t: 'upd', p, id: ed.obj.id, u: to }); }
         } else if (val) {
             const o = { id: newId(), k: 'text', c: f.c, s: f.s, t: val, x: ed.x, y: ed.y, by: this.by() };
+            if (rs.length) o.rs = rs;
             for (const k of ['f', 'b', 'i', 'u', 'al', 'bg']) if (f[k] && f[k] !== BD_TDEF[k]) o[k] = f[k];
+            if (f.w) o.w = f.w;
             this.redoS = [];
             this.pushHist({ a: 'add', p, o: JSON.parse(JSON.stringify(o)) });
             this.emit({ t: 'add', p, o });
@@ -4264,39 +4489,60 @@ class Board {
     }
     fmtCurrent() {
         const t = this.fmtTarget();
-        if (t && t.ed) return t.ed.fmt;
-        if (t && t.obj) { const o = t.obj; return { ...BD_TDEF, f: o.f || 'sans', b: o.b || 0, i: o.i || 0, u: o.u || 0, al: o.al || '', bg: o.bg || '', s: o.s, c: o.c }; }
-        return { ...BD_TDEF, ...this.tfmt, s: this.tsz || (16 + this.size * 3), c: this.color };
+        if (t && t.ed) {
+            const f = { ...t.ed.fmt };
+            if (this.hasSel()) {
+                try {
+                    f.b = document.queryCommandState('bold') ? 1 : 0; f.i = document.queryCommandState('italic') ? 1 : 0; f.u = document.queryCommandState('underline') ? 1 : 0;
+                    const bg = bdHex(document.queryCommandValue('hiliteColor') || document.queryCommandValue('backColor')); f.bg = bg || '';
+                } catch (e) { }
+            }
+            return f;
+        }
+        if (t && t.obj) { const o = t.obj; return { ...BD_TDEF, f: o.f || 'sans', b: o.b || 0, i: o.i || 0, u: o.u || 0, al: o.al || '', bg: o.bg || '', s: o.s, c: o.c, w: o.w || 0 }; }
+        return { ...BD_TDEF, ...this.tfmt, s: this.tsz || (16 + this.size * 3), c: this.color, w: 0 };
     }
     fmtApply(patch) {
         const t = this.fmtTarget();
-        if (t && t.ed) { Object.assign(t.ed.fmt, patch); this.styleEditor(); t.ed.ta.focus(); }
-        else if (t && t.obj) {
+        if (t && t.ed) {
+            const ed = t.ed, sel = this.hasSel();
+            for (const k of Object.keys(patch)) {
+                if (sel && (k === 'b' || k === 'i' || k === 'u')) { this.selCmd({ b: 'bold', i: 'italic', u: 'underline' }[k]); delete patch[k]; }
+                else if (sel && k === 'bg') { this.selCmd('hiliteColor', patch.bg || 'transparent'); delete patch.bg; }
+                else if (sel && k === 'c') { this.selCmd('foreColor', patch.c); delete patch.c; }
+                else ed.fmt[k] = patch[k];
+            }
+            this.styleEditor(); this.edFocus();
+        } else if (t && t.obj) {
             const o = t.obj, from = {}, to = {};
-            for (const k of Object.keys(patch)) { const old = o[k] === undefined ? (k === 'al' || k === 'bg' ? '' : BD_TDEF[k]) : o[k]; if (old !== patch[k]) { from[k] = old; to[k] = patch[k]; } }
+            for (const k of Object.keys(patch)) { const old = o[k] === undefined ? (k === 'al' || k === 'bg' ? '' : (BD_TDEF[k] !== undefined ? BD_TDEF[k] : 0)) : o[k]; if (old !== patch[k]) { from[k] = old; to[k] = patch[k]; } }
             if (Object.keys(to).length) {
                 this.pushHist({ a: 'upd', p: this.cur, id: o.id, from, to });
                 this.emit({ t: 'upd', p: this.cur, id: o.id, u: to }); this.save(); this.refreshHistBtns();
             }
         }
-        for (const k of Object.keys(patch)) { if (k === 's') this.tsz = patch.s; else if (k in BD_TDEF && k !== 'al') this.tfmt[k] = patch[k]; }
+        if (!(t && t.obj)) for (const k of Object.keys(patch)) { if (k === 's') this.tsz = patch.s; else if (k in BD_TDEF && k !== 'al' && k !== 'bg') this.tfmt[k] = patch[k]; }
         this.refreshFmt(); this.schedule();
     }
     fmtList(kind) {
         const t = this.fmtTarget();
         if (t && t.ed) {
-            const ta = t.ed.ta, v = bdListText(ta.value, ta.selectionStart, ta.selectionEnd, kind);
-            ta.value = v; t.ed.autosize(); ta.focus();
+            const ed = t.ed; this.edFocus();
+            const ex = bdExtract(ed.ta, this.editorBase());
+            const sel = getSelection(); let a = ex.t.length, b = ex.t.length;
+            if (sel.rangeCount) { const m = bdExtract(ed.ta, this.editorBase(), [[sel.anchorNode, sel.anchorOffset], [sel.focusNode, sel.focusOffset]]); if (m.at[0] !== null && m.at[1] !== null) { a = Math.min(m.at[0], m.at[1]); b = Math.max(m.at[0], m.at[1]); } }
+            const r = bdListEdit(ex.t, ex.rs, a, b, kind);
+            bdBuildDom(ed.ta, r.t, r.rs); bdSetSel(ed.ta, r.t.length); this.snapRange();
         } else if (t && t.obj) {
-            const o = t.obj, v = bdListText(o.t, 0, o.t.length, kind);
-            this.pushHist({ a: 'upd', p: this.cur, id: o.id, from: { t: o.t }, to: { t: v } });
-            this.emit({ t: 'upd', p: this.cur, id: o.id, u: { t: v } }); this.save(); this.refreshHistBtns();
+            const o = t.obj, r = bdListEdit(o.t, o.rs || [], 0, o.t.length, kind);
+            this.pushHist({ a: 'upd', p: this.cur, id: o.id, from: { t: o.t, rs: o.rs || [] }, to: { t: r.t, rs: r.rs } });
+            this.emit({ t: 'upd', p: this.cur, id: o.id, u: { t: r.t, rs: r.rs } }); this.save(); this.refreshHistBtns();
         } else this.showToast('Click on the board with the Text tool first, then press the list button.');
     }
     insertSymbol(sym) {
         const ed = this.editor;
         if (!ed) { this.showToast('Open a text box first (Text tool, click on the board), then pick a symbol.'); return; }
-        const ta = ed.ta; ta.setRangeText(sym, ta.selectionStart, ta.selectionEnd, 'end'); ed.autosize(); ta.focus();
+        this.edFocus(); document.execCommand('insertText', false, sym); this.snapRange();
     }
     refreshFmt() {
         const bar = this.fmtEl; if (!bar) return;
@@ -4306,20 +4552,17 @@ class Board {
         const f = this.fmtCurrent();
         bar.querySelector('.bd-f-font').value = f.f;
         const si = bar.querySelector('.bd-f-size'); if (document.activeElement !== si) si.value = Math.round(f.s);
+        const ws = bar.querySelector('.bd-f-wrap'), wv = String(f.w || '');
+        if (wv && ![...ws.options].some(o => o.value === wv)) ws.insertAdjacentHTML('beforeend', `<option value="${wv}">${wv}px</option>`);
+        ws.value = wv;
         bar.querySelectorAll('[data-fmt="b"],[data-fmt="i"],[data-fmt="u"]').forEach(btn => btn.classList.toggle('on', !!f[btn.dataset.fmt]));
         bar.querySelectorAll('[data-fmt^="al-"]').forEach(btn => btn.classList.toggle('on', f.al === btn.dataset.fmt.slice(3)));
         bar.querySelectorAll('[data-hl]').forEach(btn => btn.classList.toggle('on', btn.dataset.hl === (f.bg || '')));
         bar.querySelector('.bd-f-done').classList.toggle('hidden', !this.editor);
+        bar.querySelector('.bd-f-scope').textContent = this.editor ? (this.hasSel() ? 'Selected words' : 'Whole text') : '';
     }
 
     // ---------- images ----------
-    paste(e) {
-        if (!this.visible() || !this.canDraw()) return;
-        const t = e.target; if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-        const items = e.clipboardData && e.clipboardData.items;
-        if (!items) return;
-        for (const it of items) if (it.type.startsWith('image/')) { const f = it.getAsFile(); if (f) { e.preventDefault(); this.addImageFile(f); } return; }
-    }
     addImageFile(file) {
         if (!this.isT) return;
         const fr = new FileReader();
@@ -4346,6 +4589,179 @@ class Board {
             im.src = fr.result;
         };
         fr.readAsDataURL(file);
+    }
+
+    // ---------- clipboard: paste text / formatted text / images, copy & paste board objects ----------
+    paste(e) {
+        if (!this.visible() || !this.canDraw()) return;
+        const t = e.target; if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+        const cd = e.clipboardData; if (!cd) return;
+        for (const it of cd.items || []) if (it.type.startsWith('image/')) { const f = it.getAsFile(); if (f) { e.preventDefault(); this.addImageFile(f); } return; }
+        const html = cd.getData('text/html'), txt = cd.getData('text/plain');
+        if (this.clip && this.clip.length && (!txt || txt === this.clipText)) { e.preventDefault(); this.pasteObjs(); return; }
+        if ((html && html.trim()) || (txt && txt.trim())) { e.preventDefault(); this.pasteText(html, txt); }
+    }
+    async pasteFromButton() {
+        if (!this.canDraw()) return;
+        if (this.editor) { this.showToast('Press Ctrl+V (or long-press, Paste) inside the text box.'); return; }
+        if (this.clip && this.clip.length) { this.pasteObjs(); return; }
+        try {
+            if (navigator.clipboard && navigator.clipboard.read) {
+                const items = await navigator.clipboard.read();
+                for (const it of items) {
+                    const img = it.types.find(x => x.startsWith('image/'));
+                    if (img) { await this.addImageFile(new File([await it.getType(img)], 'pasted.png', { type: img })); return; }
+                }
+                for (const it of items) {
+                    const html = it.types.includes('text/html') ? await (await it.getType('text/html')).text() : '';
+                    const txt = it.types.includes('text/plain') ? await (await it.getType('text/plain')).text() : '';
+                    if (html || txt) { this.pasteText(html, txt); return; }
+                }
+            } else if (navigator.clipboard && navigator.clipboard.readText) {
+                const txt = await navigator.clipboard.readText(); if (txt) { this.pasteText('', txt); return; }
+            }
+            this.showToast('Nothing to paste. Copy some text or an image first.');
+        } catch (err) { this.showToast('Your browser did not allow reading the clipboard. Use Ctrl+V on the board instead.'); }
+    }
+    pasteText(html, txt) {
+        let t = '', rs = [];
+        if (html && html.trim()) {
+            const safe = bdSanitizeHtml(html);
+            if (safe) {
+                const tmp = document.createElement('div');
+                tmp.style.cssText = 'position:fixed;left:-9999px;top:0;visibility:hidden;white-space:pre-wrap;font-weight:400;font-style:normal;text-decoration:none;background:none;color:' + this.color;
+                document.body.appendChild(tmp); tmp.innerHTML = safe;
+                const ex = bdExtract(tmp, { c: this.color, b: 0, i: 0, u: 0 }); tmp.remove();
+                t = ex.t; rs = ex.rs;
+            }
+        }
+        if (!t.trim()) { t = String(txt || '').replace(/\r/g, '').replace(/\s+$/, ''); rs = []; }
+        if (!t.trim()) return;
+        if (t.length > 8000) { t = t.slice(0, 8000); rs = rs.filter(r => r.s < 8000).map(r => ({ ...r, e: Math.min(r.e, 8000) })); this.showToast('Pasted text was shortened to 8000 characters.'); }
+        this.pasteN = ((this.pasteN || 0) + 1) % 8;
+        const x = Math.round(this.lastPt ? this.lastPt.x : 80 + this.pasteN * 30), y = Math.round(this.lastPt ? this.lastPt.y : 70 + this.pasteN * 30);
+        const f = { ...BD_TDEF, ...this.tfmt }, size = this.tsz || 28;
+        const longest = Math.max(...t.split('\n').map(l => l.length));
+        const o = { id: newId(), k: 'text', c: this.color, s: size, t, x: Math.max(20, Math.min(x, BD.W - 300)), y: Math.max(20, Math.min(y, BD.H - 120)), by: this.by() };
+        if (rs.length) o.rs = rs;
+        for (const k of ['f', 'b', 'i', 'u', 'bg']) if (f[k] && f[k] !== BD_TDEF[k]) o[k] = f[k];
+        if (longest > 40) o.w = Math.max(400, Math.min(1000, BD.W - o.x - 40));
+        this.redoS = [];
+        this.pushHist({ a: 'add', p: this.cur, o: JSON.parse(JSON.stringify(o)) });
+        this.emit({ t: 'add', p: this.cur, o });
+        if (this.isT) { this.tool = 'select'; this.sel = o.id; }
+        this.refreshUi(); this.save(); this.schedule();
+    }
+    copySel(cut) {
+        const o = this.selObj(); if (!o) return false;
+        if (!this.isT && o.by !== this.by()) return false;
+        this.clip = [JSON.parse(JSON.stringify(o))]; this.clipText = o.k === 'text' ? o.t : '';
+        try { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(this.clipText || ' ').catch(() => { }); } catch (e) { }
+        this.clipN = 0;
+        if (cut) { this.pushHist({ a: 'del', p: this.cur, os: [JSON.parse(JSON.stringify(o))] }); this.emit({ t: 'del', p: this.cur, ids: [o.id] }); this.save(); }
+        else this.showToast('Copied. Press Ctrl+V to paste it (also onto another page).');
+        return true;
+    }
+    pasteObjs() {
+        if (!this.clip || !this.clip.length) return;
+        this.clipN = (this.clipN || 0) + 1;
+        const d = 30 * this.clipN; let last = null;
+        this.redoS = [];
+        for (const src of this.clip) {
+            const o = JSON.parse(JSON.stringify(src)); o.id = newId(); o.by = this.by();
+            const mv = (k1, k2) => { if (o[k1] !== undefined) o[k1] += d; if (o[k2] !== undefined) o[k2] += d; };
+            if (o.pts) o.pts = o.pts.map(([px, py]) => [px + d, py + d]); else { mv('x', 'y'); mv('x1', 'y1'); mv('x2', 'y2'); }
+            this.pushHist({ a: 'add', p: this.cur, o: JSON.parse(JSON.stringify(o)) });
+            this.emit({ t: 'add', p: this.cur, o }); last = o;
+        }
+        if (this.isT && last) { this.tool = 'select'; this.sel = last.id; }
+        this.refreshUi(); this.save(); this.schedule();
+    }
+
+    // ---------- save / open boards ----------
+    boardData() { return { v: 1, savedAt: new Date().toISOString(), cur: this.cur, pages: JSON.parse(JSON.stringify(this.pages)) }; }
+    applyBoardData(d, mode) {
+        if (!d || !Array.isArray(d.pages) || !d.pages.length) { alert('That file is not a saved board.'); return; }
+        const pages = d.pages.map(p => ({ bg: p.bg || 'white', objs: (p.objs || []).map(o => ({ ...o, id: newId(), by: 't' })) }));
+        if (mode === 'append') this.pages = this.pages.concat(pages); else { this.pages = pages; }
+        this.cur = mode === 'append' ? this.pages.length - pages.length : 0;
+        this.sel = null; this.hist = []; this.redoS = []; this.closeEditor(false);
+        this.refreshUi(); this.schedule(); this.save();
+        if (this.tr) this.sendSync();
+        this.showToast(mode === 'append' ? 'Pages added to the board.' : 'Board loaded.');
+    }
+    downloadBoardFile(name) {
+        const d = this.boardData(); d.name = name || 'board';
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([JSON.stringify(d)], { type: 'application/json' }));
+        a.download = (String(name || 'board').replace(/[^\w\- ]+/g, '_').trim() || 'board') + '.board.json';
+        document.body.appendChild(a); a.click(); a.remove();
+    }
+    async openSaveDialog() {
+        const old = document.getElementById('bd-save-modal'); if (old) old.remove();
+        const defName = (this.cls || 'Board') + ' - ' + new Date().toLocaleDateString();
+        document.body.insertAdjacentHTML('beforeend', `<div id="bd-save-modal" class="fixed inset-0 z-[9998] bg-black/50 flex items-center justify-center p-4">
+            <div class="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[88vh] overflow-y-auto p-5">
+                <div class="flex justify-between items-start mb-3"><h3 class="text-lg font-bold text-gray-900">Saved boards</h3><button type="button" data-x class="text-2xl leading-none text-gray-400 hover:text-gray-700">&times;</button></div>
+                <div class="bg-indigo-50 border border-indigo-100 rounded-lg p-3 mb-4">
+                    <label class="block text-xs font-medium text-gray-600 mb-1">Save the current board (all ${this.pages.length} page${this.pages.length > 1 ? 's' : ''}) as</label>
+                    <div class="flex gap-2"><input type="text" id="bd-save-name" class="flex-1 min-w-0 px-3 py-2 border border-gray-300 rounded-lg text-sm" value="${escapeHtml(defName)}"><button type="button" data-save class="px-4 py-2 text-sm font-semibold rounded-lg bg-indigo-600 text-white">Save</button></div>
+                    <p id="bd-save-msg" class="text-xs mt-2 text-gray-500"></p>
+                </div>
+                <div class="flex flex-wrap gap-2 mb-4">
+                    <button type="button" data-dl class="px-3 py-1.5 text-sm rounded-lg border border-gray-300 hover:bg-gray-50">Download as file</button>
+                    <button type="button" data-imp class="px-3 py-1.5 text-sm rounded-lg border border-gray-300 hover:bg-gray-50">Import a file</button>
+                    <input type="file" accept=".json,application/json" id="bd-imp-file" class="hidden">
+                </div>
+                <div id="bd-save-list" class="space-y-2 text-sm text-gray-500">Loading...</div>
+            </div></div>`);
+        const m = document.getElementById('bd-save-modal'), msg = m.querySelector('#bd-save-msg'), list = m.querySelector('#bd-save-list');
+        const say = (t, bad) => { msg.textContent = t; msg.className = 'text-xs mt-2 ' + (bad ? 'text-red-600' : 'text-green-700'); };
+        const close = () => m.remove();
+        const loadList = async () => {
+            if (!isDbConnected) { list.textContent = 'Saving online needs the database. You can still download or import files.'; return; }
+            const { data, error } = await supabaseClient.from('portal_boards').select('id, name, page_count, created_at').order('created_at', { ascending: false });
+            if (error) { list.innerHTML = '<p class="text-amber-700">Saved boards are not set up yet. Run <b>portal-setup-v6.sql</b> in the Supabase SQL Editor. Until then use "Download as file".</p>'; return; }
+            if (!data.length) { list.textContent = 'No saved boards yet.'; return; }
+            list.innerHTML = data.map(b => `<div class="border border-gray-200 rounded-lg p-3 flex flex-wrap items-center gap-2" data-id="${escapeHtml(String(b.id))}">
+                <div class="flex-1 min-w-[10rem]"><div class="font-semibold text-gray-900 break-words">${escapeHtml(b.name)}</div><div class="text-xs text-gray-500">${b.page_count || 1} page${(b.page_count || 1) > 1 ? 's' : ''} &middot; ${new Date(b.created_at).toLocaleString()}</div></div>
+                <button type="button" data-load class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 text-white">Open</button>
+                <button type="button" data-add class="px-3 py-1.5 text-xs rounded-lg border border-gray-300 hover:bg-gray-50" title="Add its pages after the current ones">Add pages</button>
+                <button type="button" data-del class="px-2 py-1.5 text-xs text-red-600 hover:underline">Delete</button></div>`).join('');
+        };
+        m.addEventListener('click', async e => {
+            if (e.target === m || e.target.closest('[data-x]')) { close(); return; }
+            if (e.target.closest('[data-dl]')) { this.downloadBoardFile(m.querySelector('#bd-save-name').value); return; }
+            if (e.target.closest('[data-imp]')) { m.querySelector('#bd-imp-file').click(); return; }
+            if (e.target.closest('[data-save]')) {
+                const name = m.querySelector('#bd-save-name').value.trim() || defName;
+                if (!isDbConnected) { this.downloadBoardFile(name); say('No database: saved as a file instead.'); return; }
+                say('Saving...');
+                const d = this.boardData(); const size = JSON.stringify(d).length;
+                const { error } = await supabaseClient.from('portal_boards').insert([{ name, data: d, page_count: this.pages.length }]);
+                if (error) { this.downloadBoardFile(name); say('Could not save online (' + (error.message || 'error') + '). It was downloaded as a file instead. Run portal-setup-v6.sql to enable online saving.', true); return; }
+                say('Saved' + (size > 3e6 ? ' (large board with images)' : '') + '.'); loadList(); return;
+            }
+            const row = e.target.closest('[data-id]'); if (!row) return;
+            const id = row.dataset.id;
+            if (e.target.closest('[data-del]')) {
+                if (!confirm('Delete this saved board?')) return;
+                await supabaseClient.from('portal_boards').delete().eq('id', id); loadList(); return;
+            }
+            const mode = e.target.closest('[data-load]') ? 'replace' : e.target.closest('[data-add]') ? 'append' : '';
+            if (!mode) return;
+            if (mode === 'replace' && !confirm('Replace everything on the board with this saved board?')) return;
+            say('Loading...');
+            const { data, error } = await supabaseClient.from('portal_boards').select('data').eq('id', id).single();
+            if (error || !data) { say('Could not open it.', true); return; }
+            this.applyBoardData(data.data, mode); close();
+        });
+        m.querySelector('#bd-imp-file').addEventListener('change', async e => {
+            const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+            try { const d = JSON.parse(await f.text()); if (confirm('Replace the current board with this file? (Cancel = add its pages after the current ones)')) this.applyBoardData(d, 'replace'); else this.applyBoardData(d, 'append'); close(); }
+            catch (err) { alert('That file could not be read.'); }
+        });
+        loadList();
     }
 
     // ---------- undo / redo ----------
@@ -4383,6 +4799,8 @@ class Board {
         const k = e.key.toLowerCase();
         if ((e.ctrlKey || e.metaKey) && k === 'z') { e.preventDefault(); e.shiftKey ? this.redo() : this.undo(); return; }
         if ((e.ctrlKey || e.metaKey) && k === 'y') { e.preventDefault(); this.redo(); return; }
+        if ((e.ctrlKey || e.metaKey) && (k === 'c' || k === 'x') && this.sel) { if (this.copySel(k === 'x')) e.preventDefault(); return; }
+        if ((e.ctrlKey || e.metaKey) && k === 'd' && this.sel) { e.preventDefault(); if (this.copySel(false)) this.pasteObjs(); return; }
         if ((e.key === 'Delete' || e.key === 'Backspace') && this.sel) {
             const o = this.selObj(); if (!o) return;
             e.preventDefault();
