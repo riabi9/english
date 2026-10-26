@@ -2401,7 +2401,16 @@ window.adminAddQuestionBlock = function(type) {
             match: 'match', matching: 'match',
             link: 'link', linking: 'link',
             passage: 'passage', reading: 'passage', readingpassage: 'passage', text: 'passage',
-            passageq: 'passage_q', passagequestion: 'passage_q', passagequestions: 'passage_q', pq: 'passage_q'
+            passageq: 'passage_q', passagequestion: 'passage_q', passagequestions: 'passage_q', pq: 'passage_q',
+            fill: 'fill', fillintheblanks: 'fill', gaps: 'fill', fillgaps: 'fill',
+            short: 'short', shortanswer: 'short', typed: 'short',
+            multi: 'multi', multiselect: 'multi', multipleanswers: 'multi', checkbox: 'multi',
+            build: 'build', sentencebuilder: 'build', wordorder: 'build', unscramble: 'build',
+            sort: 'sort', sorting: 'sort', categorize: 'sort', groups: 'sort',
+            dictation: 'dictation', listening: 'dictation',
+            mistake: 'mistake', findthemistake: 'mistake', error: 'mistake', errorcorrection: 'mistake',
+            essay: 'essay', paragraph: 'essay', writing: 'essay',
+            dragfill: 'dragfill', dragandDrop: 'dragfill', draganddrop: 'dragfill', dragdrop: 'dragfill', wordbank: 'dragfill'
         };
         const IMPORT_TRUE = ['true', 't', 'yes', 'y', '1', 'vrai', 'v', 'صح', 'صحيح', 'نعم'];
         const IMPORT_FALSE = ['false', 'f', 'no', 'n', '0', 'faux', 'خطأ', 'خطا', 'غلط', 'لا'];
@@ -2462,7 +2471,7 @@ window.adminAddQuestionBlock = function(type) {
                 if (typeRaw.startsWith('#')) continue;                     // comment row
 
                 const type = IMPORT_TYPES[importKey(typeRaw)];
-                if (!type) { fail(rowNo, `unknown type "${typeRaw}". Use mcq, tf, reorder, match, link, passage or passage_q.`); continue; }
+                if (!type) { fail(rowNo, `unknown type "${typeRaw}". Use mcq, tf, multi, short, fill, dragfill, mistake, build, dictation, sort, reorder, match, link, essay, passage or passage_q.`); continue; }
 
                 const text = importCell(r[col.question]);
                 const raw = col.options.map(ci => importCell(r[ci]));
@@ -2500,6 +2509,55 @@ window.adminAddQuestionBlock = function(type) {
                     if (bad) fail(rowNo, `every pair must look like "left | right" (got a cell without both sides)`);
                     else if (pairs.length < 2) fail(rowNo, `${type} needs at least 2 pairs, each written as "left | right"`);
                     else questions.push({ type, text, pairs });
+
+                } else if (['fill', 'mistake'].includes(type)) {
+                    const items = raw.filter(Boolean);
+                    if (!items.length) { fail(rowNo, 'put at least one sentence (with the missing word in [brackets]) in the Option columns'); continue; }
+                    const badS = items.find(x => { const pp = qxParse(x); return type === 'mistake' ? pp.raws.length !== 1 : (!pp.answers.length || pp.answers.some(a => !a.length)); });
+                    if (badS) fail(rowNo, type === 'mistake' ? `"${badS}" needs exactly one [bracketed] mistake` : `"${badS}" needs a [blank] with the answer inside the brackets`);
+                    else questions.push(type === 'fill' ? { type, text: text || 'Fill in the blanks.', items, bank: /bank|dropdown|yes|true/i.test(correctRaw) } : { type, text: text || 'Tap the word that is wrong.', items });
+
+                } else if (type === 'short') {
+                    const answers = raw.filter(Boolean);
+                    if (!text) fail(rowNo, 'the question is empty'); else if (!answers.length) fail(rowNo, 'put at least one accepted answer in the Option columns');
+                    else questions.push({ type, text, answers });
+
+                } else if (type === 'multi') {
+                    const options = raw.filter(Boolean), tokens = correctRaw.split(/[,;]+/).map(x => x.trim()).filter(Boolean), correct = [];
+                    if (!text) { fail(rowNo, 'the question is empty'); continue; }
+                    if (options.length < 2) { fail(rowNo, 'needs at least 2 options'); continue; }
+                    let bad = '';
+                    tokens.forEach(t => {
+                        let pos = raw.findIndex(o => o && o.toLowerCase() === t.toLowerCase());
+                        if (pos < 0 && /^[a-z]$/i.test(t)) pos = t.toUpperCase().charCodeAt(0) - 65;
+                        if (pos < 0 && /^\d+$/.test(t)) pos = parseInt(t, 10) - 1;
+                        if (pos < 0 || !raw[pos]) { bad = t; return; }
+                        const ci = raw.slice(0, pos + 1).filter(Boolean).length - 1; if (!correct.includes(ci)) correct.push(ci);
+                    });
+                    if (bad) fail(rowNo, `could not match "${bad}" to an option`); else if (!correct.length) fail(rowNo, 'the Correct column must list every right option, e.g. A, C');
+                    else questions.push({ type, text, options, correct: correct.sort((a, b) => a - b) });
+
+                } else if (type === 'build' || type === 'dictation') {
+                    const sentences = raw.filter(Boolean);
+                    if (!sentences.length) fail(rowNo, 'put at least one sentence in the Option columns');
+                    else if (type === 'build' && sentences.some(x => x.split(/\s+/).length < 2)) fail(rowNo, 'every sentence needs at least 2 words');
+                    else questions.push(type === 'build' ? { type, text: text || 'Put the words in the correct order.', sentences } : { type, text: text || 'Listen and type what you hear.', sentences, accent: /gb|uk|brit/i.test(correctRaw) ? 'en-GB' : 'en-US' });
+
+                } else if (type === 'sort') {
+                    const groups = []; let bad = false;
+                    raw.forEach(cell => { if (!cell) return; const i = cell.indexOf('|'); const name = i < 0 ? '' : cell.slice(0, i).trim(); const items = i < 0 ? [] : cell.slice(i + 1).split(/[;\n]+/).map(x => x.trim()).filter(Boolean); if (!name || !items.length) bad = true; else groups.push({ name, items }); });
+                    if (bad) fail(rowNo, 'every group must look like "Group name | item1; item2; item3"'); else if (groups.length < 2) fail(rowNo, 'sorting needs at least 2 groups');
+                    else questions.push({ type, text: text || 'Put each item in the correct group.', groups });
+
+                } else if (type === 'essay') {
+                    if (!text) { fail(rowNo, 'the essay question or task is empty'); continue; }
+                    const nums = correctRaw.match(/\d+/g) || [];
+                    questions.push({ type, text, model: raw[0] || '', pts: Math.max(1, parseInt(nums[0], 10) || 5), minWords: Math.max(0, parseInt(nums[1], 10) || 0) });
+
+                } else if (type === 'dragfill') {
+                    const body = raw[0] || '', pp = body ? qxParse(body) : { answers: [] };
+                    if (!pp.answers.length || pp.answers.some(a => !a.length)) fail(rowNo, 'Option 1 must be the text with at least one [gap]');
+                    else questions.push({ type, text: text || 'Drag each word into the right gap.', body, extra: (raw[1] || '').split(/[;\n]+/).map(x => x.trim()).filter(Boolean) });
 
                 } else if (type === 'passage') {
                     if (!text) { fail(rowNo, 'the passage text is empty (put it in the Question column)'); continue; }
@@ -2611,29 +2669,39 @@ window.adminAddQuestionBlock = function(type) {
                 row('link', 'Link each country with its capital', ['France | Paris', 'Italy | Rome', 'Spain | Madrid'], ''),
                 row('passage', 'Anna has a black cat. The cat likes to sleep all day on the sofa.', [], ''),
                 row('passage_q', 'Who has a cat?', ['Anna', 'Bob', 'Carl', 'Dan'], 'A'),
-                row('passage_q', 'What colour is the cat?', ['White', 'Black', 'Red', 'Blue'], 'Black')
+                row('passage_q', 'What colour is the cat?', ['White', 'Black', 'Red', 'Blue'], 'Black'),
+                row('multi', 'Which of these are fruits?', ['Apple', 'Carrot', 'Banana', 'Potato'], 'A, C'),
+                row('short', 'What is the plural of "child"?', ['children'], ''),
+                row('fill', 'Complete with the correct verb', ['She [goes] to school every day.', 'I [am|\'m] happy.'], ''),
+                row('dragfill', 'Drag each word into the right gap', ['The [cat] sat on the [mat].', 'dog; table'], ''),
+                row('mistake', 'Tap the word that is wrong', ['She [go] to school every day.', 'He [have] two brothers.'], ''),
+                row('build', 'Put the words in the correct order', ['The cat sat on the mat.', 'I like pizza very much.'], ''),
+                row('dictation', 'Listen and type what you hear', ['She goes to school by bus.', 'They are playing football.'], 'US'),
+                row('sort', 'Put each item in the correct group', ['Fruits | apple; banana; orange', 'Vegetables | carrot; potato; onion'], ''),
+                row('essay', 'Write a paragraph about your last holiday (5-8 sentences).', ['Model answer for the teacher (optional)'], '10 | 50')
             ];
             const help = [
                 ['How to fill in the Questions sheet'],
                 [''],
-                ['One row = one question. Keep the header row. Delete the example rows and add your own.'],
-                ['Rows whose Type starts with # are ignored, so you can use them for notes.'],
+                ['One row = one question. Keep the header row. Delete the example rows and add your own. Rows whose Type starts with # are ignored (notes).'],
+                ['Columns: Type | Question | Option 1 ... Option 8 | Correct. The exercise title and the class are chosen on the website, not in this file.'],
                 [''],
-                ['Type = mcq (multiple choice)'],
-                ['   Question: the question. Option 1-8: the answers (at least 2; add more Option columns if you need more). Correct: A, B, C... (or the option number, or the exact text of the right option).'],
-                ['Type = tf (true / false)'],
-                ['   Question: the statement. Correct: TRUE or FALSE.'],
-                ['Type = reorder'],
-                ['   Question: the instruction (optional). Option 1, 2, 3...: the items in the CORRECT order. Students see them shuffled.'],
-                ['Type = match  or  link'],
-                ['   Question: the instruction (optional). Each Option cell is one pair written as: left | right   (use the | character).'],
-                ['Type = passage (reading text with several questions)'],
-                ['   Question: the text students read. Then put one or more passage_q rows directly underneath.'],
-                ['Type = passage_q (a question about the passage above)'],
-                ['   Filled in exactly like an mcq row.'],
+                ['mcq (multiple choice, one right answer)   Question = the question. Options = answers (2-8). Correct = A, B, C... (or the number, or the exact text).'],
+                ['multi (several right answers)             Question + Options as mcq. Correct = ALL right ones separated by commas, e.g. A, C.'],
+                ['tf (true / false)                         Question = the statement. Correct = TRUE or FALSE.'],
+                ['short (type the answer)                   Question = the question. Each Option = one accepted answer (e.g. children).'],
+                ['fill (fill in the blanks, typed)          Question = instruction. Each Option = one sentence with the missing word in [brackets]. Alternatives: [am|\'m]. Correct = write "bank" to turn it into dropdowns with a word bank (otherwise leave empty).'],
+                ['dragfill (drag words into gaps)           Question = instruction. Option 1 = the text with [gaps]. Option 2 (optional) = extra wrong words separated by ;'],
+                ['mistake (tap the wrong word)              Question = instruction. Each Option = one sentence with EXACTLY ONE [wrong word] in brackets.'],
+                ['build (sentence builder)                  Question = instruction. Each Option = one correct sentence (students rebuild it from shuffled words).'],
+                ['dictation (listen and type)               Question = instruction. Each Option = one sentence read aloud. Correct = US or GB (accent).'],
+                ['sort (put items in groups)                Question = instruction. Each Option = one group written as: Group name | item1; item2; item3'],
+                ['reorder (put items in order)              Question = instruction. Options = the items in the CORRECT order (students see them shuffled).'],
+                ['match / link (pairs)                      Question = instruction. Each Option = one pair written as: left | right'],
+                ['essay (written paragraph, teacher marks)  Question = the task. Option 1 = model answer (optional). Correct = points | minimum words, e.g. 10 | 50'],
+                ['passage (reading text) + passage_q        Question of the passage row = the text. Put passage_q rows directly under it (filled like mcq).'],
                 [''],
-                ['The exercise title and the class are chosen on the website, not in this file.'],
-                ['Scoring: 1 point per mcq / tf / passage_q, 1 point per correct pair in match / link, 1 point for a fully correct reorder.']
+                ['Scoring: 1 point per mcq / tf / multi / short / passage_q, 1 per sentence in fill / mistake / build / dictation, 1 per correct pair or item, essay = points you set.']
             ];
             const wb = XLSX.utils.book_new();
             const ws = XLSX.utils.aoa_to_sheet(questions);
