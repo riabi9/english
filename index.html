@@ -5380,7 +5380,7 @@ QX.fill = {
                 if (q.bank) {
                     h += `<select data-k="${k}" onchange="window.qxFill(${qi}, '${k}', this.value)" class="qx-in mx-1 px-2 py-1.5 border-2 border-gray-300 rounded-lg bg-gray-50"><option value="">...</option>${order.map(w => `<option value="${escapeHtml(w)}">${escapeHtml(w)}</option>`).join('')}</select>`;
                 } else {
-                    const w = Math.max(6, Math.max(...p.answers[bi].map(a => a.length)) + 3);
+                    const w = 12;   // same width for every blank, so its size never gives the answer away
                     h += `<input type="text" data-k="${k}" oninput="window.qxFill(${qi}, '${k}', this.value)" autocomplete="off" autocapitalize="none" spellcheck="false" class="qx-in mx-1 px-2 py-1 border-2 border-gray-300 rounded-lg bg-gray-50 text-center" style="width:${w}ch;max-width:100%">`;
                 }
             }
