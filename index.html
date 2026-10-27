@@ -47,6 +47,20 @@
         .bd-color-input { width:26px; height:26px; padding:0; border:0; background:none; cursor:pointer; }
         .bd-text-btn { font-size:13px; padding:4px 10px; border-radius:8px; border:1px solid #d1d5db; background:#fff; color:#374151; cursor:pointer; }
         .bd-text-btn:hover { background:#f3f4f6; }
+        .bd-prep .bd-top { display:none; }
+        .bd-prep .bd-diag { display:none !important; }
+        .bd-prep .bd-pages { padding:4px 8px; gap:4px; flex-wrap:wrap; }
+        .bd-prep .bd-pages .bd-text-btn { padding:3px 8px; font-size:12px; white-space:nowrap; }
+        .bd-prep .bd-pages .bd-page-label { font-size:12px; white-space:nowrap; }
+        .bd-prep .bd-tools [data-tool], .bd-prep .bd-tools .bd-colors, .bd-prep .bd-tools .bd-sep, .bd-prep .bd-tools label, .bd-prep .bd-tools [data-act=image], .bd-prep .bd-tools [data-act=paste] { display:none !important; }
+        .bd-prep { border:2px dashed #818cf8; }
+        .bd-snip { position:relative; width:190px; flex:none; border:1px solid #c7d2fe; background:#eef2ff; border-radius:10px; padding:6px 8px 6px 8px; cursor:grab; touch-action:none; user-select:none; }
+        .bd-snip:hover { background:#e0e7ff; }
+        .bd-snip b { display:block; font-size:12px; color:#3730a3; padding-right:36px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .bd-snip span.pv { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; font-size:12px; color:#374151; white-space:pre-line; }
+        .bd-snip .sx { position:absolute; top:2px; right:4px; font-size:13px; color:#6b7280; background:none; border:0; cursor:pointer; padding:0 3px; }
+        .bd-snip .sx:hover { color:#dc2626; }
+        .bd-ghost { position:fixed; z-index:9999; pointer-events:none; background:#fff; border:2px dashed #6366f1; border-radius:8px; padding:6px 10px; font-size:14px; max-width:280px; box-shadow:0 6px 20px rgba(0,0,0,.2); white-space:pre-line; opacity:.92; }
         .bd-danger-t:hover { background:#fee2e2; color:#b91c1c; border-color:#fca5a5; }
         .bd-pulse { animation: bdPulse 1.4s infinite; }
         .bd-fmt { position:relative; padding-top:6px; min-width:0; max-width:100%; }
@@ -3407,6 +3421,8 @@ const BD_FONTS = {
 };
 const BD_HL = ['', '#fde68a', '#bbf7d0', '#fbcfe8', '#bfdbfe'];
 const BD_LAYC = new WeakMap();
+function bdLoadSnips() { try { const a = JSON.parse(localStorage.getItem('portal-board-notes') || '[]'); return Array.isArray(a) ? a.filter(x => x && x.obj && x.id) : []; } catch (e) { return []; } }
+function bdSaveSnips(a) { try { localStorage.setItem('portal-board-notes', JSON.stringify(a)); } catch (e) { } }
 const BD_TDEF = { f: 'sans', b: 0, i: 0, u: 0, al: '', bg: '' };
 const BD_SYMBOLS = ['\u026A', 'i\u02D0', '\u028A', 'u\u02D0', 'e', '\u0259', '\u025C\u02D0', '\u0254\u02D0', '\u00E6', '\u028C', '\u0251\u02D0', '\u0252', 'a\u026A', 'e\u026A', '\u0254\u026A', '\u0259\u028A', 'a\u028A', '\u026A\u0259', 'e\u0259', '\u028A\u0259',
     '\u03B8', '\u00F0', '\u0283', '\u0292', 't\u0283', 'd\u0292', '\u014B', '\u02C8', '\u02CC', '\u02D0', '\u00B7',
@@ -3574,6 +3590,9 @@ class Board {
         this.drag = null; this.rafId = 0; this.saveT = null; this.syncT = null; this.syncId = null;
         this.build();
         this.bind();
+        if (this.isT && !this.opts.prep) this.initNotes();
+        if (this.opts.prep) { this.root.classList.add('bd-prep'); this.cls = '__prep__'; this.load(); this.refreshUi(); } else if (!Board.active) Board.active = this;
+        this.mount.addEventListener('pointerdown', e => { if (e.target.closest && e.target.closest('.bd-stage')) Board.active = this; }, true);   // the board you last worked on gets the keyboard and the shared tools
         this.refreshUi();
         this.fit();
     }
@@ -3594,6 +3613,7 @@ class Board {
                     ${T ? `<label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none"><input type="checkbox" class="bd-allow w-4 h-4"> Let students draw</label>
                            <button type="button" class="bd-text-btn" data-act="clrstu">Clear student drawings</button>
                             <button type="button" class="bd-text-btn" data-act="savebd" title="Save this board as a lesson (with its exercises), open saved lessons, export or import a file">Save / Open lesson</button>
+                            <button type="button" class="bd-text-btn" data-act="notes" title="A hidden board only you see: prepare things and drag them onto the main board">&#9660; Prep board</button>
                             <span class="bd-lesson-name hidden text-xs font-semibold text-emerald-700 truncate max-w-[14rem]"></span>` : `<button type="button" class="bd-text-btn bd-hand" data-act="hand">&#9995; Raise hand</button>`}
                     ${act('download', 'download', 'Save this page as an image')}
                     ${act('zoom', 'zoom', 'Zoom the board (scroll sideways to move around)', 'md:hidden')}
@@ -3621,7 +3641,7 @@ class Board {
                     <span class="bd-sep"></span>
                     ${act('undo', 'undo', 'Undo (Ctrl+Z)')}${act('redo', 'redo', 'Redo (Ctrl+Y)')}
                     <button type="button" class="bd-fb" data-act="paste" title="Paste text or an image from the clipboard (or press Ctrl+V)">Paste</button>
-                    ${T ? act('clear', 'trash', 'Clear this page', 'bd-danger') : ''}
+                    ${T ? `<span class="bd-sep" style="margin-left:auto;margin-right:18px"></span><button type="button" class="bd-text-btn bd-danger-t" data-act="clear" title="Clear everything on this page (asks first)" style="color:#b91c1c;border-color:#fca5a5">${bdIcon('trash').replace('w-5 h-5', 'w-4 h-4')} Clear page</button>` : ''}
                 </div>
             </div>
                 <div class="bd-fmt hidden flex flex-wrap items-center gap-1.5 px-2 pb-2 bg-gray-50 border-b border-gray-200">
@@ -3783,6 +3803,8 @@ class Board {
 
     // ---------- UI state ----------
     refreshUi() {
+        if (this.prep && !this._rp) { this._rp = 1; try { this.prep.refreshUi(); } finally { this._rp = 0; } }
+        else if (this.opts.prep && this.main && !this.main._rp) { this.main._rp = 1; try { this.main.refreshUi(); } finally { this.main._rp = 0; } }
         const draw = this.canDraw();
         if (!this.isT) {
             const grp = this.mount.querySelector('.bd-grp-draw');
@@ -3847,11 +3869,17 @@ class Board {
         if (!this.canDraw()) return;
         this.tool = t; if (t !== 'select') this.sel = null;
         this.closeEditor(true);
+        if (this.prep) { this.prep.closeEditor(true); if (t !== 'select') this.prep.sel = null; this.prep.schedule(); }
         this.refreshUi(); this.schedule();
     }
     setColor(c) {
         this.color = c;
         const inp = this.mount.querySelector('.bd-color-input'); if (/^#[0-9a-f]{6}$/i.test(c)) inp.value = c;
+        const pb = this.prep && Board.active === this.prep && this.prep.visible() ? this.prep : null;
+        if (pb) {
+            if (pb.editor) { pb.fmtApply({ c }); } else { const po = pb.selObj(); if (po && po.k !== 'img') { pb.emit({ t: 'upd', p: pb.cur, id: po.id, u: { c } }); pb.save(); } }
+            pb.schedule(); this.refreshUi(); return;
+        }
         if (this.editor) { this.fmtApply({ c }); this.refreshUi(); return; }
         const o = this.selObj();
         if (o && this.isT && o.k !== 'img') { this.emit({ t: 'upd', p: this.cur, id: o.id, u: { c } }); this.save(); }
@@ -3865,11 +3893,11 @@ class Board {
             case 'clear': this.clearPage(); break;
             case 'clrstu': if (confirm("Remove everything the students drew?")) { this.emit({ t: 'clrs' }); this.save(); } break;
             case 'download': this.download(); break;
-            case 'paste': this.pasteFromButton(); break;
+            case 'paste': ((this.prep && Board.active === this.prep && this.prep.visible()) ? this.prep : this).pasteFromButton(); break;
             case 'savebd': this.openSaveDialog(); break;
             case 'full': this.toggleFull(); break;
             case 'zoom': this.zoomed = !this.zoomed; this.mount.querySelector('[data-act="zoom"]').classList.toggle('on', this.zoomed); this.fit(); break;
-            case 'image': this.mount.querySelector('.bd-file').click(); break;
+            case 'image': ((this.prep && Board.active === this.prep && this.prep.visible()) ? this.prep : this).mount.querySelector('.bd-file').click(); break;
             case 'prev': this.gotoPage(this.cur - 1); break;
             case 'next': this.gotoPage(this.cur + 1); break;
             case 'addpage': this.emit({ t: 'addpage', at: this.pages.length, bg: this.pg().bg }); this.gotoPage(this.pages.length - 1); this.save(); break;
@@ -4085,6 +4113,7 @@ class Board {
     }
     destroy() {
         this.leave(true);
+        if (this.notesBox) this.notesBox.remove(); if (this.prep) { try { this.prep.destroy(); } catch (e) { } }
         document.removeEventListener('keydown', this._key);
         document.removeEventListener('paste', this._paste);
         document.removeEventListener('selectionchange', this._sel);
@@ -4439,6 +4468,11 @@ class Board {
         } else if (d.type === 'mv') {
             const dx = p.x - d.lx, dy = p.y - d.ly; d.lx = p.x; d.ly = p.y; d.tx += dx; d.ty += dy;
             const o = this.findObj(this.cur, d.id); if (o) this.moveObj(o, dx, dy);
+            if (this.opts.prep) {
+                const r = this.canvas.getBoundingClientRect(), out = e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+                if (out && !this._hint) { this._hint = document.createElement('div'); this._hint.className = 'bd-ghost'; this._hint.textContent = 'Drop on the main board'; document.body.appendChild(this._hint); }
+                if (this._hint) { this._hint.style.display = out ? '' : 'none'; this._hint.style.left = e.clientX + 10 + 'px'; this._hint.style.top = e.clientY + 10 + 'px'; }
+            }
             const m = this.pend.mv || (this.pend.mv = { id: d.id, dx: 0, dy: 0 }); m.dx += dx; m.dy += dy; this.queue();
         } else if (d.type === 'laser') { this.laser(p); return; }
         this.schedule();
@@ -4467,11 +4501,23 @@ class Board {
                 if (to.w !== d.from.w) this.pushHist({ a: 'upd', p, id: d.id, from: d.from, to });
             }
         } else if (d.type === 'mv') {
+            if (this.opts.prep && this.main && this.main.visible()) {
+                const o = this.findObj(p, d.id), own = this.canvas.getBoundingClientRect(), mr = this.main.canvas.getBoundingClientRect();
+                const inside = (r) => e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+                if (o && !inside(own) && inside(mr)) {
+                    this.main.dropFromPrep(o, { x: (e.clientX - mr.left) / mr.width * BD.W, y: (e.clientY - mr.top) / mr.height * BD.H });
+                    this.moveObj(o, -d.tx, -d.ty);                       // put the original back where it was
+                    this.removeDragHint();
+                    this.save(); this.schedule(); this.refreshUi(); return;
+                }
+            }
+            this.removeDragHint();
             if (d.tx || d.ty) this.pushHist({ a: 'mv', p, id: d.id, dx: d.tx, dy: d.ty });
         }
         this.save(); this.schedule(); this.refreshUi();
     }
 
+    removeDragHint() { if (this._hint) { this._hint.remove(); this._hint = null; } }
     eraseAt(p) {
         const r = Math.max(10, this.size * 1.5) / this.cssScale * 1.0 + 6;
         const objs = this.pg().objs, gone = [];
@@ -4738,6 +4784,7 @@ class Board {
     // ---------- clipboard: paste text / formatted text / images, copy & paste board objects ----------
     paste(e) {
         if (!this.visible() || !this.canDraw()) return;
+        if (Board.active && Board.active !== this && Board.active.mount.isConnected && Board.active.visible()) return;
         const t = e.target; if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
         const cd = e.clipboardData; if (!cd) return;
         for (const it of cd.items || []) if (it.type.startsWith('image/')) { const f = it.getAsFile(); if (f) { e.preventDefault(); this.addImageFile(f); } return; }
@@ -4795,6 +4842,56 @@ class Board {
         this.emit({ t: 'add', p: this.cur, o });
         if (this.isT) { this.tool = 'select'; this.sel = o.id; }
         this.refreshUi(); this.save(); this.schedule();
+    }
+    // ---------- prep board (teacher only, never sent to students) ----------
+    initNotes() {
+        // the prep board lives in its own box right after the main board (not inside it), so clicks and buttons never reach the main board
+        const box = document.createElement('div'); box.className = 'bd-notes-wrap mt-3'; box.innerHTML = `<div class="bd-notes hidden px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-xl">
+                <div class="flex flex-wrap items-center gap-2 mb-2">
+                    <b class="text-sm text-indigo-900">Prep board</b><span class="text-xs text-indigo-700">only you see this &mdash; prepare things here, then <b>drag an item (Select tool) up onto the main board</b>. It stays here for next time.</span>
+                    <span class="flex-1"></span>
+                    <button type="button" class="bd-text-btn" data-sn="sendsel" title="Copy the selected item to the main board">Send selected to board</button>
+                    <button type="button" class="bd-text-btn" data-sn="close">Close</button>
+                </div>
+                <div class="bd-prep-mount mx-auto" style="max-width:540px"></div>
+            </div>`;
+        this.mount.insertAdjacentElement('afterend', box);
+        this.notesEl = box.querySelector('.bd-notes'); this.notesBox = box;
+        this.mount.addEventListener('click', e => { if (e.target.closest('[data-act=notes]')) this.togglePrep(); });
+        box.addEventListener('click', e => {
+            const b = e.target.closest('[data-sn]'); if (!b) return;
+            if (b.dataset.sn === 'close') this.togglePrep(false);
+            else if (b.dataset.sn === 'sendsel') {
+                const pb = this.prep, o = pb && pb.selObj();
+                if (!o) { this.showToast('Select an item on the prep board first (Select tool).'); return; }
+                this.dropFromPrep(o, null);
+            }
+        });
+    }
+    togglePrep(on) {
+        const open = on === undefined ? this.notesEl.classList.contains('hidden') : on;
+        this.notesEl.classList.toggle('hidden', !open);
+        if (open && !this.prep) {
+            this.prep = new Board(this.notesEl.querySelector('.bd-prep-mount'), 'teacher', { prep: true });
+            window.prepBoard = this.prep; this.prep.main = this;
+            for (const k of ['tool', 'color', 'size', 'fill', 'tfmt', 'tsz']) Object.defineProperty(this.prep, k, { get: () => this[k], set: v => { this[k] = v; }, configurable: true });   // one set of tools for both boards
+        }
+        if (open && this.prep) { this.prep.fit(); this.prep.schedule(); }
+    }
+    // copy a prepared object onto this (main) board; at = logical point where its top-left goes, or null for a free spot
+    dropFromPrep(src, at) {
+        const o = JSON.parse(JSON.stringify(src)); o.id = newId(); o.by = this.by();
+        const bb = this.bounds(o); let x, y;
+        if (at) { x = at.x - bb.w / 2; y = at.y - bb.h / 2; }
+        else { this.noteN = ((this.noteN || 0) + 1) % 8; x = 80 + this.noteN * 30; y = 70 + this.noteN * 30; }
+        x = Math.max(10, Math.min(x, BD.W - Math.max(40, bb.w) - 10)); y = Math.max(10, Math.min(y, BD.H - Math.max(30, bb.h) - 10));
+        this.moveObj(o, x - bb.x, y - bb.y);
+        this.redoS = [];
+        this.pushHist({ a: 'add', p: this.cur, o: JSON.parse(JSON.stringify(o)) });
+        this.emit({ t: 'add', p: this.cur, o });
+        this.tool = 'select'; this.sel = o.id;
+        this.refreshUi(); this.save(); this.schedule();
+        this.showToast('Added to the board.');
     }
     copySel(cut) {
         const o = this.selObj(); if (!o) return false;
@@ -5004,6 +5101,7 @@ class Board {
     // ---------- keyboard ----------
     key(e) {
         if (!this.visible() || !this.canDraw()) return;
+        if (Board.active && Board.active !== this && Board.active.mount.isConnected && Board.active.visible()) return;
         const t = e.target;
         if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
         const k = e.key.toLowerCase();
