@@ -188,7 +188,7 @@ function normalizeData(raw) {                  // raw: {questions, texts?, categ
   return { data: out, warnings };
 }
 function parseQuizFile(name, text) {           // .html or .json -> {title, skill, data, warnings}
-  const base = name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim();
+  const base = name.replace(/\.[^.]+$/, '').replace(/^[0-9a-f]{8}-/i, '').replace(/[_-]+/g, ' ').replace(/\btcf\b/gi, 'TCF').trim();
   let title = base.charAt(0).toUpperCase() + base.slice(1), raw;
   if (/\.json$/i.test(name)) {
     const j = JSON.parse(text);
@@ -422,7 +422,7 @@ function renderQueue() {
     }),
     ok.length ? h('div', { class: 'card imp row' },
       h('label', { style: 'display:flex;gap:8px;align-items:center;cursor:pointer' }, h('input', { type: 'checkbox', id: 'imp-pub', style: 'width:auto' }), 'Publish right away (otherwise they stay as drafts)'),
-      h('span', { class: 'sp' }), h('button', { class: 'primary', onclick: saveQueue }, 'Save ' + ok.length + ' simulation' + (ok.length > 1 ? 's' : ''))) : null);
+      h('span', { class: 'sp' }), h('button', { class: 'primary', onclick: saveQueue }, 'Save ' + ok.length + ' simulation' + (ok.length > 1 ? 's' : ''))) : '');
 }
 async function saveQueue() {
   const pub = $('#imp-pub').checked; let n = 0, base = adminSims.length;
@@ -446,7 +446,7 @@ async function openEditor(id) {
   const close = () => { if (dirty && !confirm('Close without saving your changes?')) return; modal.remove(); };
   function paint() {
     const y = window.scrollY; const mTop = modal.scrollTop;
-    host.replaceChildren(
+    host.replaceChildren(h('div', {},
       h('div', { class: 'row' }, h('h2', { style: 'margin:0' }, id ? 'Edit simulation' : 'New simulation'), h('span', { class: 'sp' }), h('button', { class: 'primary', onclick: save }, 'Save'), h('button', { onclick: close }, 'Close')),
       h('label', { class: 'f' }, 'Title'), h('input', { value: sim.title, oninput: e => { sim.title = e.target.value; mark(); } }),
       h('div', { class: 'cols' },
@@ -463,7 +463,7 @@ async function openEditor(id) {
       h('button', { class: 'small', onclick: () => { D.texts.push({ title: '', content: '' }); mark(); paint(); } }, '+ Passage'),
       h('h3', { style: 'margin:20px 0 6px' }, 'Questions (' + D.questions.length + ')'),
       D.questions.map((q, i) => qEditor(q, i)),
-      h('div', { class: 'row' }, h('button', { class: 'primary', onclick: () => { D.questions.push({ category: Object.keys(D.categoryNames)[0], prompt: '', options: ['', '', '', ''], correctIndex: 0, explanation: '' }); mark(); paint(); setTimeout(() => modal.scrollTo(0, modal.scrollHeight), 0); } }, '+ Question'), h('span', { class: 'sp' }), h('button', { class: 'primary', onclick: save }, 'Save')));
+      h('div', { class: 'row' }, h('button', { class: 'primary', onclick: () => { D.questions.push({ category: Object.keys(D.categoryNames)[0], prompt: '', options: ['', '', '', ''], correctIndex: 0, explanation: '' }); mark(); paint(); setTimeout(() => modal.scrollTo(0, modal.scrollHeight), 0); } }, '+ Question'), h('span', { class: 'sp' }), h('button', { class: 'primary', onclick: save }, 'Save'))));
     modal.scrollTop = mTop;
   }
   function qEditor(q, i) {
