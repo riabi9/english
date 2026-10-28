@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Préparation TCF</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%234f46e5'/%3E%3Ctext x='50' y='66' font-size='46' font-family='Arial' font-weight='700' text-anchor='middle' fill='white'%3ETCF%3C/text%3E%3C/svg%3E">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{--bg:#f5f4f3;--card:#fff;--ink:#1f1e1d;--mut:#5f5e5a;--line:#e1e0d9;--acc:#4f46e5;--acc-soft:#eef2ff;--ok:#0a7d3b;--ok-bg:#e5f4e4;--ok-line:#55bf50;--bad:#b93535;--bad-bg:#fbebeb;--bad-line:#ec7e7e;--warn:#b45309;--warn-bg:#fef3c7;--r:12px}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#171716;--card:#232322;--ink:#f1f0ec;--mut:#aaa9a2;--line:#3a3a37;--acc:#818cf8;--acc-soft:#2a2c4a;--ok:#6fd49a;--ok-bg:#1c3326;--ok-line:#2f7d4d;--bad:#f08a8a;--bad-bg:#3a2020;--bad-line:#8a3a3a;--warn:#f5c36b;--warn-bg:#3a2e14}}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:"Segoe UI",system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--ink);line-height:1.5;min-height:100vh}
+.wrap{max-width:1040px;margin:0 auto;padding:16px}
+header.top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+h1{font-size:24px;margin:0}
+.sub{color:var(--mut);font-size:14px;margin:2px 0 0}
+button,.btn{font:inherit;font-size:14px;padding:8px 14px;border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--ink);cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:6px}
+button:hover,.btn:hover{background:var(--acc-soft)}
+button:disabled{opacity:.5;cursor:not-allowed}
+.primary{background:var(--acc);border-color:var(--acc);color:#fff}.primary:hover{filter:brightness(1.08);background:var(--acc)}
+.danger{color:var(--bad);border-color:var(--bad-line)}.danger:hover{background:var(--bad-bg)}
+.small{padding:4px 9px;font-size:12.5px}
+input,select,textarea{font:inherit;font-size:14px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);width:100%}
+textarea{resize:vertical;min-height:60px}
+label.f{display:block;font-size:12.5px;font-weight:600;color:var(--mut);margin:10px 0 4px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:16px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:14px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 16px;align-items:center}
+.chip{padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:var(--card);font-size:13px;cursor:pointer}
+.chip.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+.badge{display:inline-block;font-size:11.5px;font-weight:600;padding:2px 9px;border-radius:999px;background:var(--acc-soft);color:var(--acc)}
+.badge.g{background:var(--ok-bg);color:var(--ok)}.badge.w{background:var(--warn-bg);color:var(--warn)}.badge.m{background:var(--line);color:var(--mut)}
+.sim h3{margin:8px 0 4px;font-size:17px}.sim p{margin:0 0 10px;color:var(--mut);font-size:13.5px}
+.sim .meta{font-size:12.5px;color:var(--mut);margin-bottom:12px}
+.hidden{display:none!important}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.sp{flex:1}
+.bar{height:5px;background:var(--line);border-radius:3px;overflow:hidden}.bar>i{display:block;height:100%;background:var(--acc);border-radius:3px}
+.empty{text-align:center;color:var(--mut);padding:40px 10px}
+/* player */
+.player{max-width:760px;margin:0 auto}
+.reading{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:14px;white-space:pre-line;font-size:15px;line-height:1.7;margin:0 0 16px}
+.reading b.t{display:block;font-size:12px;color:var(--mut);margin-bottom:6px}
+.qtext{font-size:17px;font-weight:600;margin:0 0 14px}
+.opts{display:flex;flex-direction:column;gap:8px}
+.opt{text-align:left;width:100%;padding:11px 14px;font-size:15px}
+.opt.sel{border-color:var(--acc);background:var(--acc-soft)}
+.opt.ok{background:var(--ok-bg);border-color:var(--ok-line);color:var(--ok)}
+.opt.bad{background:var(--bad-bg);border-color:var(--bad-line);color:var(--bad)}
+.fb{margin-top:12px;padding:10px 12px;border-radius:9px;font-size:14px}
+.fb.ok{background:var(--ok-bg);color:var(--ok)}.fb.bad{background:var(--bad-bg);color:var(--bad)}
+.nav{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px}
+.nav button{padding:3px 0;width:32px;justify-content:center;font-size:12.5px}
+.nav button.done{background:var(--acc-soft);border-color:var(--acc)}.nav button.cur{background:var(--acc);color:#fff;border-color:var(--acc)}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
+.stat{background:var(--bg);border-radius:10px;padding:14px}.stat b{display:block;font-size:26px}.stat span{font-size:13px;color:var(--mut)}
+.cat{margin-bottom:12px;font-size:13.5px}.cat .l{display:flex;justify-content:space-between;margin-bottom:4px}
+.rev{border-top:1px solid var(--line);padding:10px 0;font-size:14px}.rev small{color:var(--mut)}
+.timer{font-variant-numeric:tabular-nums;font-weight:700}.timer.low{color:var(--bad)}
+/* admin */
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:16px;flex-wrap:wrap}
+.tab{padding:9px 14px;border:0;border-bottom:3px solid transparent;border-radius:0;background:none;color:var(--mut);font-weight:600}
+.tab.on{color:var(--acc);border-bottom-color:var(--acc)}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th,td{text-align:left;padding:8px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+th{font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.03em}
+.tw{overflow-x:auto}
+.drop{border:2px dashed var(--line);border-radius:var(--r);padding:26px;text-align:center;color:var(--mut)}
+.drop.over{border-color:var(--acc);background:var(--acc-soft)}
+.imp{margin-top:14px}
+.warn{background:var(--warn-bg);color:var(--warn);border-radius:8px;padding:6px 10px;font-size:12.5px;margin-top:6px}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:50;display:flex;align-items:flex-start;justify-content:center;overflow-y:auto;padding:16px}
+.modal>.card{width:100%;max-width:880px;margin:auto}
+.qcard{border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:12px;background:var(--bg)}
+.oprow{display:flex;gap:8px;align-items:center;margin-bottom:6px}.oprow input[type=radio]{width:auto}
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#111827;color:#fff;padding:10px 18px;border-radius:10px;font-size:14px;z-index:99;max-width:90vw}
+.toast.err{background:#b91c1c}
+.banner{background:var(--warn-bg);color:var(--warn);border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Préparation TCF</h1>
+      <p class="sub" id="subtitle">Entraîne-toi avec des simulations corrigées.</p>
+    </div>
+    <div class="row">
+      <a class="btn small" href="index.html" id="portal-link">&larr; Portail</a>
+      <button class="small hidden" id="to-student">Vue élève</button>
+      <button class="small" id="admin-btn">Admin</button>
+    </div>
+  </header>
+  <div id="banner"></div>
+  <main id="view"></main>
+</div>
+<div id="modal-host"></div>
+
+<script>
+'use strict';
+// ====================== config ======================
+const SUPABASE_URL = "https://fmmfofjkebdsrnkchrfo.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZtbWZvZmprZWJkc3Jua2NocmZvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY1MDAxNDIsImV4cCI6MjA5MjA3NjE0Mn0.bQQJt06mucLCQCrY1NgN-ed2ngDeRLmITmOfQCAM7ZU";
+const ADMIN_PASSWORD = "19990";    // same password as the classroom portal
+const SKILLS = { grammar: 'Structures de la langue', reading: 'Compréhension écrite', listening: 'Compréhension orale', vocabulary: 'Vocabulaire', writing: 'Expression écrite', other: 'Autre' };
+const LEVELS = ['', 'A1', 'A2', 'B1', 'B2', 'C1', 'C2'];
+
+let sb = null;
+try { if (window.supabase) sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY); } catch (e) { console.error(e); }
+
+// ====================== helpers ======================
+const $ = (s, r = document) => r.querySelector(s);
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v === false || v === null || v === undefined) continue;
+    if (k === 'class') el.className = v;
+    else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+    else if (k === 'value') el.value = v;
+    else if (k in el && k !== 'list') { try { el[k] = v; } catch (e) { el.setAttribute(k, v); } }
+    else el.setAttribute(k, v === true ? '' : v);
+  }
+  for (const k of kids.flat()) if (k !== null && k !== undefined && k !== false) el.append(k.nodeType ? k : document.createTextNode(String(k)));
+  return el;
+}
+function toast(msg, err) { const t = h('div', { class: 'toast' + (err ? ' err' : '') }, msg); document.body.append(t); setTimeout(() => t.remove(), err ? 6000 : 2600); }
+function setView(...nodes) { const v = $('#view'); v.replaceChildren(...nodes); window.scrollTo(0, 0); }
+function showBanner(msg) { $('#banner').replaceChildren(msg ? h('div', { class: 'banner' }, msg) : ''); }
+const fmtTime = s => String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+const deep = o => JSON.parse(JSON.stringify(o));
+function ls(k, v) { try { if (v === undefined) return JSON.parse(localStorage.getItem(k)); localStorage.setItem(k, JSON.stringify(v)); } catch (e) { return null; } }
+
+// ====================== data layer ======================
+const COLS = 'id,title,skill,level,description,minutes,q_count,sort,published,created_at';
+const SETUP_HINT = 'Run tcf-setup.sql in the Supabase SQL editor first (the TCF tables do not exist yet).';
+async function dbListSims(admin) {
+  if (!sb) throw new Error('Supabase is not available. Check your internet connection.');
+  let q = sb.from('tcf_sims').select(COLS).order('sort', { ascending: true }).order('id', { ascending: true });
+  if (!admin) q = q.eq('published', true);
+  const { data, error } = await q; if (error) throw error; return data || [];
+}
+async function dbGetSim(id) { const { data, error } = await sb.from('tcf_sims').select('*').eq('id', id).single(); if (error) throw error; return data; }
+async function dbSaveSim(row) {
+  const rec = { title: row.title, skill: row.skill, level: row.level || '', description: row.description || '', minutes: +row.minutes || 0, published: !!row.published, data: row.data, q_count: row.data.questions.length, updated_at: new Date().toISOString() };
+  if (row.id) { const { error } = await sb.from('tcf_sims').update(rec).eq('id', row.id); if (error) throw error; return row.id; }
+  if (row.sort !== undefined) rec.sort = row.sort;
+  const { data, error } = await sb.from('tcf_sims').insert([rec]).select('id').single(); if (error) throw error; return data.id;
+}
+
+// ====================== quiz data: parse / validate ======================
+function extractLiteral(src, name) {           // returns the JS literal text assigned to `var|let|const name =`
+  const m = new RegExp('(?:var|let|const)\\s+' + name + '\\s*=\\s*').exec(src); if (!m) return null;
+  let i = m.index + m[0].length; const open = src[i]; const close = open === '[' ? ']' : open === '{' ? '}' : null; if (!close) return null;
+  let depth = 0, str = null;
+  for (let j = i; j < src.length; j++) {
+    const c = src[j];
+    if (str) { if (c === '\\') j++; else if (c === str) str = null; continue; }
+    if (c === '"' || c === "'" || c === '`') { str = c; continue; }
+    if (c === '/' && src[j + 1] === '/') { while (j < src.length && src[j] !== '\n') j++; continue; }
+    if (c === '/' && src[j + 1] === '*') { j = src.indexOf('*/', j + 2); if (j < 0) return null; j++; continue; }
+    if (c === open) depth++; else if (c === close) { depth--; if (depth === 0) return src.slice(i, j + 1); }
+  }
+  return null;
+}
+function evalLiteral(lit) { return (new Function('"use strict"; return (' + lit + ');'))(); }
+function normalizeData(raw) {                  // raw: {questions, texts?, categoryNames?}; returns {data, warnings}
+  const warnings = [], out = { texts: [], categoryNames: {}, questions: [] };
+  if (!raw || !Array.isArray(raw.questions)) return { data: out, warnings: ['No "questions" list found.'] };
+  (Array.isArray(raw.texts) ? raw.texts : []).forEach(t => out.texts.push({ title: String(t.title || ''), content: String(t.content || '') }));
+  const cn = raw.categoryNames && typeof raw.categoryNames === 'object' ? raw.categoryNames : {};
+  raw.questions.forEach((q, i) => {
+    const n = i + 1;
+    if (!q || typeof q.prompt !== 'string' || !q.prompt.trim()) { warnings.push(`Question ${n} skipped: no text.`); return; }
+    const options = Array.isArray(q.options) ? q.options.map(o => String(o)) : [];
+    if (options.length < 2) { warnings.push(`Question ${n} skipped: needs at least 2 options.`); return; }
+    const ci = Number(q.correctIndex);
+    if (!Number.isInteger(ci) || ci < 0 || ci >= options.length) { warnings.push(`Question ${n} skipped: correctIndex is missing or out of range.`); return; }
+    const cat = String(q.category || 'general');
+    if (!out.categoryNames[cat]) out.categoryNames[cat] = cn[cat] ? String(cn[cat]) : (cat === 'general' ? 'Général' : cat.charAt(0).toUpperCase() + cat.slice(1));
+    const nq = { category: cat, prompt: q.prompt, options, correctIndex: ci, explanation: String(q.explanation || '') };
+    if (q.textIndex !== undefined && q.textIndex !== null && out.texts[q.textIndex]) nq.textIndex = Number(q.textIndex); else if (q.textIndex !== undefined && q.textIndex !== null) warnings.push(`Question ${n}: passage ${q.textIndex} does not exist; passage link removed.`);
+    if (!nq.explanation) warnings.push(`Question ${n} has no explanation.`);
+    out.questions.push(nq);
+  });
+  if (!out.questions.length) warnings.push('No valid question found.');
+  return { data: out, warnings };
+}
+function parseQuizFile(name, text) {           // .html or .json -> {title, skill, data, warnings}
+  const base = name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim();
+  let title = base.charAt(0).toUpperCase() + base.slice(1), raw;
+  if (/\.json$/i.test(name)) {
+    const j = JSON.parse(text);
+    if (j.data && j.data.questions) { return { title: j.title || title, skill: j.skill || 'other', level: j.level || '', description: j.description || '', minutes: j.minutes || 0, ...normalizeData(j.data) }; }
+    raw = j;
+  } else {
+    const doc = new DOMParser().parseFromString(text, 'text/html');
+    const tt = doc.querySelector('title'); if (tt && tt.textContent.trim()) title = tt.textContent.trim();
+    const src = [...doc.querySelectorAll('script:not([src])')].map(s => s.textContent).join('\n');
+    const q = extractLiteral(src, 'questions'); if (!q) throw new Error('Could not find the "questions" list in this file.');
+    raw = { questions: evalLiteral(q) };
+    const t = extractLiteral(src, 'texts'); if (t) raw.texts = evalLiteral(t);
+    const c = extractLiteral(src, 'categoryNames'); if (c) raw.categoryNames = evalLiteral(c);
+  }
+  const { data, warnings } = normalizeData(raw);
+  const skill = data.texts.length ? 'reading' : (/vocab/i.test(name) ? 'vocabulary' : 'grammar');
+  return { title, skill, level: '', description: '', minutes: 0, data, warnings };
+}
+
+// ====================== student: library ======================
+let state = { sims: [], filter: 'all', search: '', admin: false };
+const bestOf = id => ls('tcf_best_' + id);
+
+async function showLibrary() {
+  stopTimer();
+  state.admin = false; $('#admin-btn').classList.remove('hidden'); $('#to-student').classList.add('hidden');
+  $('#subtitle').textContent = 'Entraîne-toi avec des simulations corrigées.';
+  setView(h('div', { class: 'empty' }, 'Chargement…'));
+  try { state.sims = await dbListSims(false); showBanner(''); }
+  catch (e) { console.error(e); state.sims = []; showBanner(/relation|does not exist|schema cache/i.test(e.message || '') ? SETUP_HINT : 'Impossible de charger les simulations : ' + (e.message || e)); }
+  renderLibrary();
+}
+function renderLibrary() {
+  const skills = [...new Set(state.sims.map(s => s.skill))];
+  const chips = h('div', { class: 'chips' },
+    h('button', { class: 'chip' + (state.filter === 'all' ? ' on' : ''), onclick: () => { state.filter = 'all'; renderLibrary(); } }, 'Tout'),
+    skills.map(k => h('button', { class: 'chip' + (state.filter === k ? ' on' : ''), onclick: () => { state.filter = k; renderLibrary(); } }, SKILLS[k] || k)),
+    h('span', { class: 'sp' }),
+    h('input', { type: 'search', placeholder: 'Rechercher…', value: state.search, style: 'max-width:220px', oninput: e => { state.search = e.target.value; renderGrid(); } }));
+  const grid = h('div', { class: 'grid', id: 'lib-grid' });
+  setView(chips, grid); renderGrid();
+}
+function renderGrid() {
+  const grid = $('#lib-grid'); if (!grid) return;
+  const q = state.search.trim().toLowerCase();
+  const list = state.sims.filter(s => (state.filter === 'all' || s.skill === state.filter) && (!q || (s.title + ' ' + s.description).toLowerCase().includes(q)));
+  if (!list.length) { grid.replaceChildren(h('div', { class: 'empty' }, state.sims.length ? 'Aucun résultat.' : 'Aucune simulation disponible pour le moment.')); return; }
+  grid.replaceChildren(...list.map(s => {
+    const b = bestOf(s.id);
+    return h('div', { class: 'card sim' },
+      h('div', { class: 'row' }, h('span', { class: 'badge' }, SKILLS[s.skill] || s.skill), s.level ? h('span', { class: 'badge m' }, s.level) : null, h('span', { class: 'sp' }), b ? h('span', { class: 'badge g', title: 'Ton meilleur score' }, 'Meilleur : ' + b.pct + ' %') : null),
+      h('h3', {}, s.title), s.description ? h('p', {}, s.description) : null,
+      h('div', { class: 'meta' }, s.q_count + ' questions' + (s.minutes ? ' · ' + s.minutes + ' min' : '')),
+      h('button', { class: 'primary', onclick: () => openSim(s.id) }, b ? 'Refaire' : 'Commencer'));
+  }));
+}
+
+// ====================== player ======================
+let run = null, timerId = null;
+function stopTimer() { if (timerId) { clearInterval(timerId); timerId = null; } }
+async function openSim(id, preview) {
+  try { const row = await dbGetSim(id); showIntro(row, !!preview); }
+  catch (e) { console.error(e); toast('Impossible d’ouvrir cette simulation.', true); }
+}
+function showIntro(sim, preview) {
+  const d = sim.data || { questions: [] };
+  let mode = 'practice';
+  const name = h('input', { placeholder: 'Ton prénom (facultatif)', value: ls('tcf_name') || '', maxlength: 60 });
+  const modeBox = h('div', { class: 'row' },
+    ...[['practice', 'Entraînement', 'Correction après chaque question'], ['exam', 'Examen', 'Correction à la fin' + (sim.minutes ? ', avec chronomètre' : '')]].map(([v, t, s]) =>
+      h('label', { class: 'card', style: 'flex:1;min-width:200px;cursor:pointer;padding:12px' }, h('input', { type: 'radio', name: 'mode', value: v, checked: v === 'practice', style: 'width:auto;margin-right:8px', onchange: () => { mode = v; } }), h('b', {}, t), h('div', { class: 'sub' }, s))));
+  setView(h('div', { class: 'player card' },
+    h('div', { class: 'row' }, h('span', { class: 'badge' }, SKILLS[sim.skill] || sim.skill), sim.level ? h('span', { class: 'badge m' }, sim.level) : null),
+    h('h2', { style: 'margin:8px 0 4px' }, sim.title), sim.description ? h('p', { class: 'sub' }, sim.description) : null,
+    h('p', {}, d.questions.length + ' questions' + (sim.minutes ? ' · durée : ' + sim.minutes + ' min' : '')),
+    modeBox, preview ? null : [h('label', { class: 'f' }, 'Ton nom'), name],
+    h('div', { class: 'row', style: 'margin-top:16px' }, h('button', { class: 'primary', onclick: () => { ls('tcf_name', name.value.trim()); startRun(sim, d.questions.map((q, i) => i), mode, name.value.trim(), preview); } }, 'Commencer'), h('button', { onclick: () => preview ? showAdmin() : showLibrary() }, 'Retour'))));
+}
+function startRun(sim, idxs, mode, student, preview, noSave) {
+  stopTimer();
+  run = { sim, idxs, mode, student, preview, noSave, i: 0, answers: new Array(idxs.length).fill(null), locked: new Array(idxs.length).fill(false), t0: Date.now(), left: sim.minutes && mode === 'exam' && !noSave ? sim.minutes * 60 : 0 };
+  if (run.left) timerId = setInterval(tick, 1000);
+  renderQuestion();
+}
+function tick() { if (!run) return stopTimer(); run.left--; const t = $('#timer'); if (t) { t.textContent = fmtTime(Math.max(0, run.left)); t.classList.toggle('low', run.left <= 60); } if (run.left <= 0) { stopTimer(); toast('Temps écoulé !'); finishRun(); } }
+const qOf = k => run.sim.data.questions[run.idxs[k]];
+function renderQuestion() {
+  const d = run.sim.data, k = run.i, q = qOf(k), n = run.idxs.length, exam = run.mode === 'exam';
+  const cats = d.categoryNames || {};
+  const done = run.locked[k];
+  const parts = [];
+  parts.push(h('div', { class: 'row', style: 'margin-bottom:8px' }, h('span', { class: 'sub' }, cats[q.category] || q.category), h('span', { class: 'sp' }), run.left || exam && run.sim.minutes ? h('span', { class: 'timer', id: 'timer' }, fmtTime(Math.max(0, run.left))) : null, h('span', { class: 'sub' }, 'Question ' + (k + 1) + ' / ' + n)));
+  parts.push(h('div', { class: 'bar', style: 'margin-bottom:14px' }, h('i', { style: 'width:' + Math.round((k + 1) / n * 100) + '%' })));
+  if (exam && n > 1) parts.push(h('div', { class: 'nav' }, run.idxs.map((_, j) => h('button', { class: (j === k ? 'cur' : run.answers[j] !== null ? 'done' : ''), onclick: () => { run.i = j; renderQuestion(); } }, j + 1))));
+  if (q.textIndex !== undefined && d.texts[q.textIndex]) { const t = d.texts[q.textIndex]; parts.push(h('div', { class: 'reading' }, t.title ? h('b', { class: 't' }, t.title) : null, t.content)); }
+  parts.push(h('p', { class: 'qtext' }, q.prompt));
+  const opts = h('div', { class: 'opts' }, q.options.map((o, i) => {
+    let cls = 'opt';
+    if (exam) { if (run.answers[k] === i) cls += ' sel'; }
+    else if (done) { if (i === q.correctIndex) cls += ' ok'; else if (i === run.answers[k]) cls += ' bad'; }
+    return h('button', { class: cls, disabled: done && !exam, onclick: () => pick(i) }, o);
+  }));
+  parts.push(opts);
+  if (!exam && done) { const good = run.answers[k] === q.correctIndex; parts.push(h('div', { class: 'fb ' + (good ? 'ok' : 'bad') }, (good ? 'Correct. ' : 'Incorrect. ') + (q.explanation || ''))); }
+  const last = k === n - 1;
+  parts.push(h('div', { class: 'row', style: 'margin-top:18px' },
+    h('span', { class: 'sub' }, exam ? '' : 'Score : ' + score() + '/' + n), h('span', { class: 'sp' }),
+    exam && k > 0 ? h('button', { onclick: () => { run.i--; renderQuestion(); } }, 'Précédent') : null,
+    (exam || done) ? h('button', { class: 'primary', onclick: () => { if (last) { if (exam && run.answers.includes(null) && !confirm('Certaines questions n’ont pas de réponse. Terminer quand même ?')) return; finishRun(); } else { run.i++; renderQuestion(); } } }, last ? 'Terminer' : 'Suivant') : null,
+    h('button', { class: 'small', onclick: () => { if (confirm('Quitter cette simulation ? Ta progression sera perdue.')) { stopTimer(); run = null; run0(); } } }, 'Quitter')));
+  setView(h('div', { class: 'player card' }, parts));
+}
+function run0() { state.admin && run === null && $('#admin-btn').classList.contains('hidden') ? showAdmin() : (run && run.preview ? showAdmin() : showLibrary()); }
+function score() { let s = 0; run.idxs.forEach((_, k) => { if (run.answers[k] === qOf(k).correctIndex) s++; }); return s; }
+function pick(i) { const k = run.i; if (run.mode === 'exam') { run.answers[k] = i; renderQuestion(); } else if (!run.locked[k]) { run.answers[k] = i; run.locked[k] = true; renderQuestion(); } }
+async function finishRun() {
+  stopTimer();
+  const r = run, n = r.idxs.length, s = score(), pct = Math.round(s / n * 100), secs = Math.round((Date.now() - r.t0) / 1000), d = r.sim.data, cats = d.categoryNames || {};
+  const by = {}; r.idxs.forEach((_, k) => { const q = qOf(k); const c = by[q.category] || (by[q.category] = { score: 0, total: 0 }); c.total++; if (r.answers[k] === q.correctIndex) c.score++; });
+  if (!r.preview && !r.noSave) {
+    const b = bestOf(r.sim.id); if (!b || pct > b.pct) ls('tcf_best_' + r.sim.id, { pct, score: s, total: n, date: new Date().toISOString() });
+    if (sb) sb.from('tcf_results').insert([{ sim_id: r.sim.id, sim_title: r.sim.title, student_name: r.student || '', score: s, total: n, pct, mode: r.mode, seconds: secs, by_category: by }]).then(({ error }) => { if (error) console.warn('result not saved', error); });
+  }
+  const missed = r.idxs.map((_, k) => k).filter(k => r.answers[k] !== qOf(k).correctIndex);
+  const col = ratio => ratio >= .8 ? 'var(--ok)' : ratio >= .5 ? 'var(--warn)' : 'var(--bad)';
+  setView(h('div', { class: 'player card' },
+    h('h2', { style: 'margin:0 0 12px' }, r.sim.title),
+    h('div', { class: 'stats' }, h('div', { class: 'stat' }, h('span', {}, 'Score final'), h('b', {}, s + ' / ' + n)), h('div', { class: 'stat' }, h('span', {}, 'Réussite'), h('b', {}, pct + ' %'))),
+    r.mode === 'exam' ? h('p', { class: 'sub' }, 'Temps : ' + fmtTime(secs)) : null,
+    Object.keys(by).length > 1 ? h('div', {}, Object.entries(by).map(([c, v]) => { const ratio = v.score / v.total; return h('div', { class: 'cat' }, h('div', { class: 'l' }, h('span', {}, cats[c] || c), h('b', { style: 'color:' + col(ratio) }, v.score + '/' + v.total)), h('div', { class: 'bar' }, h('i', { style: `width:${Math.round(ratio * 100)}%;background:${col(ratio)}` }))); })) : null,
+    h('h3', { style: 'margin:18px 0 6px' }, missed.length ? 'À revoir (' + missed.length + ')' : 'Score parfait, rien à revoir.'),
+    missed.map(k => { const q = qOf(k); return h('div', { class: 'rev' }, h('small', {}, cats[q.category] || q.category), h('div', {}, h('b', {}, q.prompt)), h('div', {}, r.answers[k] === null ? 'Pas de réponse. ' : 'Ta réponse : ' + q.options[r.answers[k]] + '. ', h('b', { style: 'color:var(--ok)' }, 'Bonne réponse : ' + q.options[q.correctIndex] + '.')), q.explanation ? h('small', {}, q.explanation) : null); }),
+    h('div', { class: 'row', style: 'margin-top:18px' },
+      h('button', { class: 'primary', onclick: () => startRun(r.sim, r.sim.data.questions.map((_, i) => i), r.mode, r.student, r.preview) }, 'Recommencer'),
+      missed.length ? h('button', { onclick: () => startRun(r.sim, missed.map(k => r.idxs[k]), 'practice', r.student, r.preview, true) }, 'Refaire seulement les erreurs') : null,
+      h('button', { onclick: () => { run = null; r.preview ? showAdmin() : showLibrary(); } }, r.preview ? 'Retour à l’admin' : 'Bibliothèque'))));
+}
+
+// ====================== admin ======================
+let adminTab = 'sims', adminSims = [], importQueue = [];
+function askPassword() {
+  return new Promise(res => {
+    const pw = h('input', { type: 'password', placeholder: 'Mot de passe', autofocus: true });
+    const err = h('div', { class: 'warn hidden' }, 'Mot de passe incorrect.');
+    const close = v => { m.remove(); res(v); };
+    const go = () => { if (pw.value === ADMIN_PASSWORD) close(true); else { err.classList.remove('hidden'); pw.select(); } };
+    pw.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+    const m = h('div', { class: 'modal' }, h('div', { class: 'card', style: 'max-width:360px' }, h('h3', { style: 'margin-top:0' }, 'Accès administrateur'), pw, err, h('div', { class: 'row', style: 'margin-top:12px' }, h('button', { class: 'primary', onclick: go }, 'Entrer'), h('button', { onclick: () => close(false) }, 'Annuler'))));
+    $('#modal-host').append(m); pw.focus();
+  });
+}
+async function enterAdmin() {
+  if (!sessionStorage.getItem('tcf_admin')) { if (!(await askPassword())) return; try { sessionStorage.setItem('tcf_admin', '1'); } catch (e) { } }
+  showAdmin();
+}
+async function showAdmin(tab) {
+  stopTimer(); run = null; state.admin = true; if (tab) adminTab = tab;
+  $('#admin-btn').classList.add('hidden'); $('#to-student').classList.remove('hidden'); $('#subtitle').textContent = 'Espace administrateur';
+  const tabs = h('div', { class: 'tabs' }, [['sims', 'Simulations'], ['import', 'Ajouter / Importer'], ['results', 'Résultats']].map(([k, t]) => h('button', { class: 'tab' + (adminTab === k ? ' on' : ''), onclick: () => showAdmin(k) }, t)));
+  const body = h('div', { id: 'admin-body' }, h('div', { class: 'empty' }, 'Chargement…'));
+  setView(tabs, body);
+  try { if (adminTab === 'sims' || adminTab === 'import') { adminSims = await dbListSims(true); showBanner(''); } }
+  catch (e) { console.error(e); showBanner(/relation|does not exist|schema cache/i.test(e.message || '') ? SETUP_HINT : 'Error: ' + (e.message || e)); adminSims = []; }
+  if (adminTab === 'sims') renderAdminSims(); else if (adminTab === 'import') renderImport(); else renderResults();
+}
+function renderAdminSims() {
+  const body = $('#admin-body');
+  const top = h('div', { class: 'row', style: 'margin-bottom:12px' }, h('button', { class: 'primary', onclick: () => openEditor(null) }, '+ New simulation'), h('button', { onclick: () => showAdmin('import') }, 'Import files'), h('span', { class: 'sp' }), h('button', { onclick: exportAll, disabled: !adminSims.length }, 'Backup (JSON)'));
+  if (!adminSims.length) { body.replaceChildren(top, h('div', { class: 'card empty' }, 'No simulation yet. Use “Import files” to add your HTML quizzes, or create one from scratch.')); return; }
+  const rows = adminSims.map((s, i) => h('tr', {},
+    h('td', {}, h('button', { class: 'small', disabled: i === 0, onclick: () => move(i, -1) }, '↑'), ' ', h('button', { class: 'small', disabled: i === adminSims.length - 1, onclick: () => move(i, 1) }, '↓')),
+    h('td', {}, h('b', {}, s.title), h('div', { class: 'sub' }, (SKILLS[s.skill] || s.skill) + (s.level ? ' · ' + s.level : ''))),
+    h('td', {}, s.q_count), h('td', {}, s.minutes ? s.minutes + ' min' : '—'),
+    h('td', {}, h('label', { style: 'display:flex;gap:6px;align-items:center;cursor:pointer' }, h('input', { type: 'checkbox', style: 'width:auto', checked: s.published, onchange: e => publish(s, e.target.checked) }), h('span', { class: 'badge ' + (s.published ? 'g' : 'w') }, s.published ? 'Published' : 'Draft'))),
+    h('td', {}, h('div', { class: 'row' }, h('button', { class: 'small', onclick: () => openEditor(s.id) }, 'Edit'), h('button', { class: 'small', onclick: () => openSim(s.id, true) }, 'Preview'), h('button', { class: 'small', onclick: () => duplicate(s.id) }, 'Duplicate'), h('button', { class: 'small', onclick: () => exportOne(s.id) }, 'Export'), h('button', { class: 'small danger', onclick: () => del(s) }, 'Delete')))));
+  body.replaceChildren(top, h('div', { class: 'card tw' }, h('table', {}, h('thead', {}, h('tr', {}, ['Order', 'Title', 'Questions', 'Timer', 'Status', 'Actions'].map(x => h('th', {}, x)))), h('tbody', {}, rows))));
+}
+async function publish(s, on) { const { error } = await sb.from('tcf_sims').update({ published: on }).eq('id', s.id); if (error) { toast(error.message, true); } else { s.published = on; toast(on ? 'Published — students can see it now.' : 'Unpublished.'); } renderAdminSims(); }
+async function move(i, d) {
+  const a = adminSims[i], b = adminSims[i + d]; if (!b) return;
+  adminSims.splice(i, 1); adminSims.splice(i + d, 0, a);
+  const res = await Promise.all(adminSims.map((s, k) => sb.from('tcf_sims').update({ sort: k }).eq('id', s.id)));
+  if (res.some(r => r.error)) toast('Could not save the order.', true); renderAdminSims();
+}
+async function del(s) { if (!confirm('Delete “' + s.title + '” for good?')) return; const { error } = await sb.from('tcf_sims').delete().eq('id', s.id); if (error) return toast(error.message, true); toast('Deleted.'); showAdmin('sims'); }
+async function duplicate(id) { try { const r = await dbGetSim(id); await dbSaveSim({ ...r, id: null, title: r.title + ' (copy)', published: false, sort: 9999 }); toast('Duplicated as a draft.'); showAdmin('sims'); } catch (e) { toast(e.message, true); } }
+function download(name, text, type) { const a = h('a', { href: URL.createObjectURL(new Blob([text], { type: type || 'application/json' })), download: name }); document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500); }
+async function exportOne(id) { try { const r = await dbGetSim(id); download((r.title || 'simulation').replace(/[^\w-]+/g, '_') + '.json', JSON.stringify({ title: r.title, skill: r.skill, level: r.level, description: r.description, minutes: r.minutes, data: r.data }, null, 1)); } catch (e) { toast(e.message, true); } }
+async function exportAll() { try { const out = []; for (const s of adminSims) { const r = await dbGetSim(s.id); out.push({ title: r.title, skill: r.skill, level: r.level, description: r.description, minutes: r.minutes, published: r.published, data: r.data }); } download('tcf-backup-' + new Date().toISOString().slice(0, 10) + '.json', JSON.stringify(out, null, 1)); } catch (e) { toast(e.message, true); } }
+
+// ---- import ----
+function renderImport() {
+  const body = $('#admin-body');
+  const input = h('input', { type: 'file', multiple: true, accept: '.html,.htm,.json', class: 'hidden', onchange: e => readFiles([...e.target.files]) });
+  const drop = h('div', { class: 'drop' }, h('b', {}, 'Drop your quiz files here'), h('div', {}, 'HTML quizzes (the same format as your TCF files) or JSON exports. You can add several at once.'), h('div', { style: 'margin-top:12px' }, h('button', { class: 'primary', onclick: () => input.click() }, 'Choose files')), input);
+  ['dragover', 'dragenter'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+  drop.addEventListener('drop', e => readFiles([...e.dataTransfer.files]));
+  body.replaceChildren(drop, h('div', { id: 'imp-list' }));
+  importQueue = [];
+}
+async function readFiles(files) {
+  for (const f of files) {
+    const text = await f.text();
+    try {
+      let items;
+      if (/\.json$/i.test(f.name)) { const j = JSON.parse(text); items = (Array.isArray(j) ? j : [j]).map((x, i) => parseQuizFile((x.title || f.name) + '.json', JSON.stringify(x.data && x.data.questions ? x : { ...x }))); items.forEach((it, i) => { const src = Array.isArray(j) ? j[i] : j; if (src.published !== undefined) it.published = !!src.published; }); }
+      else items = [parseQuizFile(f.name, text)];
+      items.forEach(it => importQueue.push({ file: f.name, ...it, published: it.published === true ? true : false }));
+    } catch (e) { console.error(e); importQueue.push({ file: f.name, error: e.message || String(e) }); }
+  }
+  renderQueue();
+}
+function renderQueue() {
+  const host = $('#imp-list'); if (!host) return;
+  const ok = importQueue.filter(x => !x.error);
+  host.replaceChildren(
+    ...importQueue.map((it, idx) => {
+      if (it.error) return h('div', { class: 'card imp' }, h('b', {}, it.file), h('div', { class: 'warn' }, it.error), h('button', { class: 'small', style: 'margin-top:8px', onclick: () => { importQueue.splice(idx, 1); renderQueue(); } }, 'Remove'));
+      const d = it.data, cats = Object.values(d.categoryNames);
+      return h('div', { class: 'card imp' },
+        h('div', { class: 'row' }, h('b', {}, it.file), h('span', { class: 'badge' }, d.questions.length + ' questions'), d.texts.length ? h('span', { class: 'badge m' }, d.texts.length + ' passages') : null, h('span', { class: 'sp' }), h('button', { class: 'small', onclick: () => { importQueue.splice(idx, 1); renderQueue(); } }, 'Remove')),
+        h('div', { class: 'cols' },
+          h('div', {}, h('label', { class: 'f' }, 'Title'), h('input', { value: it.title, oninput: e => { it.title = e.target.value; } })),
+          h('div', {}, h('label', { class: 'f' }, 'Section'), h('select', { onchange: e => { it.skill = e.target.value; } }, Object.entries(SKILLS).map(([k, v]) => h('option', { value: k, selected: k === it.skill }, v)))),
+          h('div', {}, h('label', { class: 'f' }, 'Level'), h('select', { onchange: e => { it.level = e.target.value; } }, LEVELS.map(v => h('option', { value: v, selected: v === it.level }, v || '—')))),
+          h('div', {}, h('label', { class: 'f' }, 'Timer (min, 0 = none)'), h('input', { type: 'number', min: 0, value: it.minutes || 0, oninput: e => { it.minutes = +e.target.value || 0; } }))),
+        h('label', { class: 'f' }, 'Short description (optional)'), h('input', { value: it.description || '', oninput: e => { it.description = e.target.value; } }),
+        h('div', { class: 'sub', style: 'margin-top:8px' }, 'Categories: ' + cats.join(' · ')),
+        it.warnings && it.warnings.length ? h('div', { class: 'warn' }, it.warnings.slice(0, 6).join(' '), it.warnings.length > 6 ? ' …' + (it.warnings.length - 6) + ' more' : '') : null);
+    }),
+    ok.length ? h('div', { class: 'card imp row' },
+      h('label', { style: 'display:flex;gap:8px;align-items:center;cursor:pointer' }, h('input', { type: 'checkbox', id: 'imp-pub', style: 'width:auto' }), 'Publish right away (otherwise they stay as drafts)'),
+      h('span', { class: 'sp' }), h('button', { class: 'primary', onclick: saveQueue }, 'Save ' + ok.length + ' simulation' + (ok.length > 1 ? 's' : ''))) : null);
+}
+async function saveQueue() {
+  const pub = $('#imp-pub').checked; let n = 0, base = adminSims.length;
+  for (const it of importQueue.filter(x => !x.error)) {
+    if (!it.title.trim()) { toast('Every simulation needs a title.', true); return; }
+    try { await dbSaveSim({ title: it.title.trim(), skill: it.skill, level: it.level, description: it.description, minutes: it.minutes, published: pub || it.published, data: it.data, sort: base + n }); n++; }
+    catch (e) { console.error(e); toast((e.message || e) + (/relation|schema cache/i.test(e.message || '') ? ' — ' + SETUP_HINT : ''), true); return; }
+  }
+  importQueue = []; toast(n + ' simulation' + (n > 1 ? 's' : '') + ' saved.'); showAdmin('sims');
+}
+
+// ---- editor ----
+function blank() { return { id: null, title: '', skill: 'grammar', level: '', description: '', minutes: 0, published: false, data: { texts: [], categoryNames: { general: 'Général' }, questions: [] } }; }
+async function openEditor(id) {
+  let sim; try { sim = id ? deep(await dbGetSim(id)) : blank(); } catch (e) { return toast(e.message, true); }
+  sim.data = sim.data || {}; sim.data.texts = sim.data.texts || []; sim.data.categoryNames = sim.data.categoryNames || {}; sim.data.questions = sim.data.questions || [];
+  if (!Object.keys(sim.data.categoryNames).length) sim.data.categoryNames.general = 'Général';
+  let dirty = false; const mark = () => { dirty = true; };
+  const host = h('div', { class: 'card' }); const modal = h('div', { class: 'modal' }, host);
+  const D = sim.data;
+  const close = () => { if (dirty && !confirm('Close without saving your changes?')) return; modal.remove(); };
+  function paint() {
+    const y = window.scrollY; const mTop = modal.scrollTop;
+    host.replaceChildren(
+      h('div', { class: 'row' }, h('h2', { style: 'margin:0' }, id ? 'Edit simulation' : 'New simulation'), h('span', { class: 'sp' }), h('button', { class: 'primary', onclick: save }, 'Save'), h('button', { onclick: close }, 'Close')),
+      h('label', { class: 'f' }, 'Title'), h('input', { value: sim.title, oninput: e => { sim.title = e.target.value; mark(); } }),
+      h('div', { class: 'cols' },
+        h('div', {}, h('label', { class: 'f' }, 'Section'), h('select', { onchange: e => { sim.skill = e.target.value; mark(); } }, Object.entries(SKILLS).map(([k, v]) => h('option', { value: k, selected: k === sim.skill }, v)))),
+        h('div', {}, h('label', { class: 'f' }, 'Level'), h('select', { onchange: e => { sim.level = e.target.value; mark(); } }, LEVELS.map(v => h('option', { value: v, selected: v === sim.level }, v || '—')))),
+        h('div', {}, h('label', { class: 'f' }, 'Timer (min, exam mode)'), h('input', { type: 'number', min: 0, value: sim.minutes, oninput: e => { sim.minutes = +e.target.value || 0; mark(); } })),
+        h('div', {}, h('label', { class: 'f' }, 'Status'), h('select', { onchange: e => { sim.published = e.target.value === '1'; mark(); } }, h('option', { value: '0', selected: !sim.published }, 'Draft'), h('option', { value: '1', selected: sim.published }, 'Published')))),
+      h('label', { class: 'f' }, 'Description (shown on the card)'), h('input', { value: sim.description, oninput: e => { sim.description = e.target.value; mark(); } }),
+      h('h3', { style: 'margin:20px 0 6px' }, 'Categories'), h('div', { class: 'sub' }, 'Used for the score breakdown at the end.'),
+      h('div', {}, Object.entries(D.categoryNames).map(([k, v]) => h('div', { class: 'oprow' }, h('code', { style: 'min-width:90px' }, k), h('input', { value: v, oninput: e => { D.categoryNames[k] = e.target.value; mark(); } }), h('button', { class: 'small danger', onclick: () => { if (D.questions.some(q => q.category === k)) return toast('This category is still used by a question.', true); delete D.categoryNames[k]; mark(); paint(); } }, '×')))),
+      h('button', { class: 'small', onclick: () => { const nm = (prompt('New category name (e.g. Subjonctif):') || '').trim(); if (!nm) return; const key = nm.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'cat' + Date.now(); D.categoryNames[key] = nm; mark(); paint(); } }, '+ Category'),
+      h('h3', { style: 'margin:20px 0 6px' }, 'Reading passages (optional)'), h('div', { class: 'sub' }, 'For comprehension texts: write the text once, then link several questions to it.'),
+      D.texts.map((t, i) => h('div', { class: 'qcard' }, h('div', { class: 'row' }, h('b', {}, 'Passage ' + (i + 1)), h('span', { class: 'sp' }), h('button', { class: 'small danger', onclick: () => { if (!confirm('Remove this passage? Linked questions will lose it.')) return; D.texts.splice(i, 1); D.questions.forEach(q => { if (q.textIndex === i) delete q.textIndex; else if (q.textIndex > i) q.textIndex--; }); mark(); paint(); } }, 'Remove')), h('input', { placeholder: 'Title (e.g. Société — Le télétravail)', value: t.title, oninput: e => { t.title = e.target.value; mark(); } }), h('textarea', { rows: 6, placeholder: 'Text…', value: t.content, oninput: e => { t.content = e.target.value; mark(); } }))),
+      h('button', { class: 'small', onclick: () => { D.texts.push({ title: '', content: '' }); mark(); paint(); } }, '+ Passage'),
+      h('h3', { style: 'margin:20px 0 6px' }, 'Questions (' + D.questions.length + ')'),
+      D.questions.map((q, i) => qEditor(q, i)),
+      h('div', { class: 'row' }, h('button', { class: 'primary', onclick: () => { D.questions.push({ category: Object.keys(D.categoryNames)[0], prompt: '', options: ['', '', '', ''], correctIndex: 0, explanation: '' }); mark(); paint(); setTimeout(() => modal.scrollTo(0, modal.scrollHeight), 0); } }, '+ Question'), h('span', { class: 'sp' }), h('button', { class: 'primary', onclick: save }, 'Save')));
+    modal.scrollTop = mTop;
+  }
+  function qEditor(q, i) {
+    const catSel = h('select', { onchange: e => { q.category = e.target.value; mark(); } }, Object.entries(D.categoryNames).map(([k, v]) => h('option', { value: k, selected: k === q.category }, v)));
+    const txSel = D.texts.length ? h('select', { onchange: e => { if (e.target.value === '') delete q.textIndex; else q.textIndex = +e.target.value; mark(); } }, h('option', { value: '' }, 'No passage'), D.texts.map((t, j) => h('option', { value: j, selected: q.textIndex === j }, 'Passage ' + (j + 1) + (t.title ? ' — ' + t.title.slice(0, 30) : '')))) : null;
+    return h('div', { class: 'qcard' },
+      h('div', { class: 'row' }, h('b', {}, 'Q' + (i + 1)), catSel, txSel, h('span', { class: 'sp' }),
+        h('button', { class: 'small', disabled: i === 0, onclick: () => { D.questions.splice(i - 1, 0, D.questions.splice(i, 1)[0]); mark(); paint(); } }, '↑'), h('button', { class: 'small', disabled: i === D.questions.length - 1, onclick: () => { D.questions.splice(i + 1, 0, D.questions.splice(i, 1)[0]); mark(); paint(); } }, '↓'),
+        h('button', { class: 'small', onclick: () => { D.questions.splice(i + 1, 0, deep(q)); mark(); paint(); } }, 'Duplicate'), h('button', { class: 'small danger', onclick: () => { D.questions.splice(i, 1); mark(); paint(); } }, 'Delete')),
+      h('label', { class: 'f' }, 'Question'), h('textarea', { rows: 2, value: q.prompt, oninput: e => { q.prompt = e.target.value; mark(); } }),
+      h('label', { class: 'f' }, 'Options (select the correct one)'),
+      q.options.map((o, j) => h('div', { class: 'oprow' }, h('input', { type: 'radio', name: 'c' + i + '_' + Math.random(), checked: q.correctIndex === j, onchange: () => { q.correctIndex = j; mark(); } }), h('input', { value: o, oninput: e => { q.options[j] = e.target.value; mark(); } }),
+        h('button', { class: 'small danger', disabled: q.options.length <= 2, onclick: () => { q.options.splice(j, 1); if (q.correctIndex === j) q.correctIndex = 0; else if (q.correctIndex > j) q.correctIndex--; mark(); paint(); } }, '×'))),
+      h('button', { class: 'small', onclick: () => { q.options.push(''); mark(); paint(); } }, '+ Option'),
+      h('label', { class: 'f' }, 'Explanation (shown after answering)'), h('textarea', { rows: 2, value: q.explanation || '', oninput: e => { q.explanation = e.target.value; mark(); } }));
+  }
+  async function save() {
+    if (!sim.title.trim()) return toast('Give the simulation a title.', true);
+    const problems = []; D.questions.forEach((q, i) => { const filled = q.options.filter(o => o.trim()); if (!q.prompt.trim()) problems.push('Q' + (i + 1) + ' has no text'); if (filled.length < 2) problems.push('Q' + (i + 1) + ' needs 2+ options'); if (!q.options[q.correctIndex] || !q.options[q.correctIndex].trim()) problems.push('Q' + (i + 1) + ': the correct option is empty'); });
+    if (!D.questions.length) problems.push('Add at least one question');
+    if (problems.length) return toast(problems.slice(0, 3).join(' · '), true);
+    // drop empty options but keep the correct index right
+    const clean = deep(D); clean.questions.forEach(q => { const keep = q.options.map((o, j) => ({ o, j })).filter(x => x.o.trim()); q.correctIndex = keep.findIndex(x => x.j === q.correctIndex); q.options = keep.map(x => x.o); });
+    try { const nid = await dbSaveSim({ ...sim, id: id, data: clean, sort: id ? undefined : adminSims.length }); id = nid; dirty = false; toast('Saved.'); modal.remove(); showAdmin('sims'); }
+    catch (e) { console.error(e); toast((e.message || e) + (/relation|schema cache/i.test(e.message || '') ? ' — ' + SETUP_HINT : ''), true); }
+  }
+  paint(); $('#modal-host').append(modal);
+}
+
+// ---- results ----
+async function renderResults() {
+  const body = $('#admin-body'); let rows = [];
+  try { const { data, error } = await sb.from('tcf_results').select('*').order('created_at', { ascending: false }).limit(1000); if (error) throw error; rows = data || []; showBanner(''); }
+  catch (e) { showBanner(/relation|schema cache/i.test(e.message || '') ? SETUP_HINT : 'Error: ' + (e.message || e)); }
+  const titles = [...new Set(rows.map(r => r.sim_title))];
+  let f = '';
+  const draw = () => {
+    const list = rows.filter(r => !f || r.sim_title === f);
+    const avg = list.length ? Math.round(list.reduce((a, r) => a + r.pct, 0) / list.length) : 0;
+    const top = h('div', { class: 'row', style: 'margin-bottom:12px' },
+      h('select', { style: 'max-width:280px', onchange: e => { f = e.target.value; draw(); } }, h('option', { value: '' }, 'All simulations'), titles.map(t => h('option', { value: t, selected: t === f }, t))),
+      h('span', { class: 'badge' }, list.length + ' attempts'), list.length ? h('span', { class: 'badge g' }, 'Average ' + avg + ' %') : null, h('span', { class: 'sp' }),
+      h('button', { onclick: () => download('tcf-results.csv', '﻿' + ['Date,Student,Simulation,Score,Total,Percent,Mode,Seconds', ...list.map(r => [new Date(r.created_at).toLocaleString(), r.student_name, r.sim_title, r.score, r.total, r.pct, r.mode, r.seconds].map(v => '"' + String(v).replace(/"/g, '""') + '"').join(','))].join('\n'), 'text/csv'), disabled: !list.length }, 'Export CSV'));
+    const tbl = list.length ? h('div', { class: 'card tw' }, h('table', {}, h('thead', {}, h('tr', {}, ['Date', 'Student', 'Simulation', 'Score', '%', 'Mode', 'Time', ''].map(x => h('th', {}, x)))), h('tbody', {}, list.map(r => h('tr', {}, h('td', {}, new Date(r.created_at).toLocaleString()), h('td', {}, r.student_name || '—'), h('td', {}, r.sim_title), h('td', {}, r.score + '/' + r.total), h('td', {}, h('b', {}, r.pct + ' %')), h('td', {}, r.mode === 'exam' ? 'Exam' : 'Practice'), h('td', {}, fmtTime(r.seconds || 0)), h('td', {}, h('button', { class: 'small danger', onclick: async () => { if (!confirm('Delete this result?')) return; const { error } = await sb.from('tcf_results').delete().eq('id', r.id); if (error) return toast(error.message, true); rows = rows.filter(x => x.id !== r.id); draw(); } }, '×'))))))) : h('div', { class: 'card empty' }, 'No results yet.');
+    body.replaceChildren(top, tbl);
+  };
+  draw();
+}
+
+// ====================== boot ======================
+$('#admin-btn').addEventListener('click', enterAdmin);
+$('#to-student').addEventListener('click', showLibrary);
+showLibrary();
+</script>
+</body>
+</html>
