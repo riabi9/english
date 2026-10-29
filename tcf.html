@@ -166,8 +166,9 @@ function extractLiteral(src, name) {           // returns the JS literal text as
 }
 function evalLiteral(lit) { return (new Function('"use strict"; return (' + lit + ');'))(); }
 function normalizeData(raw) {                  // raw: {questions, texts?, categoryNames?}; returns {data, warnings}
-  const warnings = [], out = { texts: [], categoryNames: {}, questions: [] };
+  const warnings = [], out = { texts: [], audios: [], categoryNames: {}, questions: [] };
   if (!raw || !Array.isArray(raw.questions)) return { data: out, warnings: ['No "questions" list found.'] };
+  (Array.isArray(raw.audios) ? raw.audios : []).forEach(a => out.audios.push(cleanAudio(a)));
   (Array.isArray(raw.texts) ? raw.texts : []).forEach(t => out.texts.push({ title: String(t.title || ''), content: String(t.content || '') }));
   const cn = raw.categoryNames && typeof raw.categoryNames === 'object' ? raw.categoryNames : {};
   raw.questions.forEach((q, i) => {
@@ -181,6 +182,7 @@ function normalizeData(raw) {                  // raw: {questions, texts?, categ
     if (!out.categoryNames[cat]) out.categoryNames[cat] = cn[cat] ? String(cn[cat]) : (cat === 'general' ? 'Général' : cat.charAt(0).toUpperCase() + cat.slice(1));
     const nq = { category: cat, prompt: q.prompt, options, correctIndex: ci, explanation: String(q.explanation || '') };
     if (q.textIndex !== undefined && q.textIndex !== null && out.texts[q.textIndex]) nq.textIndex = Number(q.textIndex); else if (q.textIndex !== undefined && q.textIndex !== null) warnings.push(`Question ${n}: passage ${q.textIndex} does not exist; passage link removed.`);
+    if (q.audioIndex !== undefined && q.audioIndex !== null && out.audios[q.audioIndex]) nq.audioIndex = Number(q.audioIndex);
     if (!nq.explanation) warnings.push(`Question ${n} has no explanation.`);
     out.questions.push(nq);
   });
@@ -206,6 +208,91 @@ function parseQuizFile(name, text) {           // .html or .json -> {title, skil
   const { data, warnings } = normalizeData(raw);
   const skill = data.texts.length ? 'reading' : (/vocab/i.test(name) ? 'vocabulary' : 'grammar');
   return { title, skill, level: '', description: '', minutes: 0, data, warnings };
+}
+
+// ====================== text-to-speech (browser voices) ======================
+const ACCENTS = { 'fr-FR': 'France', 'fr-CA': 'Canada (Québec)', 'fr-BE': 'Belgique', 'fr-CH': 'Suisse' };
+function cleanAudio(a) {
+  const sp = (Array.isArray(a && a.speakers) && a.speakers.length ? a.speakers : [{ name: 'Voix', lang: 'fr-FR', gender: '', rate: 1, pitch: 1 }]).map(x => ({ name: String(x.name || 'Voix'), lang: ACCENTS[x.lang] ? x.lang : 'fr-FR', gender: ['female', 'male'].includes(x.gender) ? x.gender : '', rate: Math.min(1.5, Math.max(.5, +x.rate || 1)), pitch: Math.min(2, Math.max(.5, +x.pitch || 1)) }));
+  return { title: String((a && a.title) || ''), plays: a && a.plays !== undefined ? Math.max(0, parseInt(a.plays, 10) || 0) : 2, speakers: sp, script: String((a && a.script) || '') };
+}
+const TTS = {
+  voices: [], supported: typeof window !== 'undefined' && 'speechSynthesis' in window, token: 0, current: null,
+  load() {
+    if (!this.supported) return Promise.resolve();
+    return new Promise(res => {
+      const get = () => { this.voices = speechSynthesis.getVoices() || []; return this.voices.length > 0; };
+      if (get()) return res();
+      speechSynthesis.addEventListener('voiceschanged', () => { get(); res(); });
+      setTimeout(res, 1500);
+    });
+  },
+  fr() { return this.voices.filter(v => /^fr/i.test(v.lang.replace('_', '-'))); },
+  score(v) { return (/natural|neural|online|premium|enhanced/i.test(v.name) ? 4 : 0) + (/google/i.test(v.name) ? 2 : 0) + (v.localService ? 0 : 1); },
+  gender(v) { const n = v.name.toLowerCase(); if (/hortense|julie|am[ée]lie|marie|denise|[ée]lo[iï]se|audrey|aur[ée]lie|c[ée]line|chlo[ée]|sylvie|brigitte|vivienne|female|femme|thomas.*f|google fran/.test(n)) return 'female'; if (/paul|thomas|henri|claude|antoine|r[ée]my|jean|nicolas|mathieu|guillaume|bernard|male\b|homme/.test(n)) return 'male'; return ''; },
+  assign(speakers) {                              // best distinct voice per speaker (accent + gender), else pitch tweaks
+    const used = new Set(); const fr = this.fr();
+    return speakers.map(sp => {
+      const lang = sp.lang.toLowerCase();
+      let pool = fr.filter(v => v.lang.toLowerCase().replace('_', '-') === lang); if (!pool.length) pool = fr;
+      let cand = sp.gender ? pool.filter(v => this.gender(v) === sp.gender) : pool; if (!cand.length) cand = pool;
+      const fresh = cand.filter(v => !used.has(v.name)); const list = (fresh.length ? fresh : cand).slice().sort((a, b) => this.score(b) - this.score(a));
+      const v = list[0] || null; let pitch = sp.pitch;
+      if (v && used.has(v.name)) pitch = Math.min(2, Math.max(.5, pitch * (sp.gender === 'male' ? .85 : 1.15)));   // same voice reused: change the pitch so speakers differ
+      if (v) used.add(v.name);
+      return { voice: v, lang: sp.lang, rate: sp.rate, pitch };
+    });
+  },
+  segments(audio) {                               // script -> [{speaker, text} | {pause}]
+    const names = audio.speakers.map(x => x.name.toLowerCase()); const out = []; let cur = 0;
+    for (const raw of audio.script.split(/\r?\n/)) {
+      const line = raw.trim(); if (!line) continue;
+      const pm = /^\[\s*pause\s*(\d+(?:[.,]\d+)?)\s*s?\s*\]$/i.exec(line); if (pm) { out.push({ pause: Math.min(10, parseFloat(pm[1].replace(',', '.'))) * 1000 }); continue; }
+      const m = /^([^:]{1,30}):\s*(.+)$/.exec(line); let text = line;
+      if (m && names.includes(m[1].trim().toLowerCase())) { cur = names.indexOf(m[1].trim().toLowerCase()); text = m[2]; }
+      text.split(/(?<=[.!?…])\s+/).forEach(t => { t = t.trim(); if (t) out.push({ speaker: cur, text: t }); });
+    }
+    return out;
+  },
+  stop() { this.token++; if (this.supported) { try { speechSynthesis.cancel(); } catch (e) { } } if (this.current) { const c = this.current; this.current = null; c.onstate && c.onstate('idle'); } },
+  play(audio, opts, onstate) {                    // opts.rateMul: speed multiplier
+    this.stop(); if (!this.supported) return false;
+    const tok = ++this.token, segs = this.segments(audio), voices = this.assign(audio.speakers), ctl = { onstate }; this.current = ctl;
+    let i = 0; onstate && onstate('playing');
+    const next = () => {
+      if (tok !== this.token) return;
+      if (i >= segs.length) { this.current = null; onstate && onstate('idle'); return; }
+      const sg = segs[i++];
+      if (sg.pause) { setTimeout(next, sg.pause); return; }
+      const u = new SpeechSynthesisUtterance(sg.text), v = voices[sg.speaker];
+      u.lang = v.lang; if (v.voice) u.voice = v.voice; u.rate = Math.min(2, Math.max(.4, v.rate * ((opts && opts.rateMul) || 1))); u.pitch = v.pitch;
+      u.onend = () => setTimeout(next, 180); u.onerror = () => setTimeout(next, 50);
+      speechSynthesis.speak(u);
+    };
+    next(); return true;
+  }
+};
+TTS.load();
+function audioPanel(a, idx, q) {                  // player: listen button + remaining plays + speed + transcript after answering
+  const exam = run.mode === 'exam'; const limit = exam && a.plays > 0 ? a.plays : 0; run.plays = run.plays || {};
+  const used = () => run.plays[idx] || 0;
+  const btn = h('button', { class: 'primary' }), info = h('span', { class: 'sub' }), speed = h('select', { style: 'width:auto;padding:4px 8px' }, [['0.8', 'Lent'], ['1', 'Normal'], ['1.2', 'Rapide']].map(([v, t]) => h('option', { value: v, selected: v === '1' }, t)));
+  const paint = st => { const left = limit ? limit - used() : null; btn.textContent = st === 'playing' ? '■ Arrêter' : (used() ? '▶ Réécouter' : '▶ Écouter'); btn.disabled = st !== 'playing' && left !== null && left <= 0; info.textContent = limit ? 'Écoutes restantes : ' + Math.max(0, limit - used()) : ''; };
+  btn.addEventListener('click', () => {
+    if (TTS.current) { TTS.stop(); return; }
+    if (!TTS.supported) return toast('Ton navigateur ne peut pas lire l\u2019audio.', true);
+    if (limit && used() >= limit) return;
+    run.plays[idx] = used() + 1; paint('playing');
+    TTS.play(a, { rateMul: exam ? 1 : +speed.value }, st => paint(st));
+  });
+  paint('idle');
+  const noVoice = TTS.supported && TTS.voices.length && !TTS.fr().length;
+  const done = !exam && run.locked[run.i];
+  return h('div', { class: 'reading', style: 'white-space:normal' },
+    h('div', { class: 'row' }, h('b', {}, '🎧 ' + (a.title || 'Document sonore')), h('span', { class: 'sp' }), exam ? null : [h('span', { class: 'sub' }, 'Vitesse'), speed]),
+    h('div', { class: 'row', style: 'margin-top:8px' }, btn, info),
+    !TTS.supported ? h('div', { class: 'warn' }, 'Ton navigateur ne prend pas en charge la lecture audio. Essaie Chrome, Edge ou Safari.') : noVoice ? h('div', { class: 'warn' }, 'Aucune voix française n\u2019est installée sur cet appareil : le son peut être incorrect. Installe une voix française dans les paramètres de ton téléphone ou ordinateur.') : null,
+    done ? h('details', { style: 'margin-top:8px' }, h('summary', {}, 'Transcription'), h('div', { style: 'white-space:pre-line;margin-top:6px' }, a.script.replace(/^\[\s*pause[^\]]*\]\s*$/gim, ''))) : null);
 }
 
 // ====================== student: library ======================
@@ -248,7 +335,7 @@ function renderGrid() {
 
 // ====================== player ======================
 let run = null, timerId = null;
-function stopTimer() { if (timerId) { clearInterval(timerId); timerId = null; } }
+function stopTimer() { TTS.stop(); if (timerId) { clearInterval(timerId); timerId = null; } }
 async function openSim(id, preview) {
   try { const row = await dbGetSim(id); showIntro(row, !!preview); }
   catch (e) { console.error(e); toast('Impossible d’ouvrir cette simulation.', true); }
@@ -276,6 +363,7 @@ function startRun(sim, idxs, mode, student, preview, noSave) {
 function tick() { if (!run) return stopTimer(); run.left--; const t = $('#timer'); if (t) { t.textContent = fmtTime(Math.max(0, run.left)); t.classList.toggle('low', run.left <= 60); } if (run.left <= 0) { stopTimer(); toast('Temps écoulé !'); finishRun(); } }
 const qOf = k => run.sim.data.questions[run.idxs[k]];
 function renderQuestion() {
+  TTS.stop();
   const d = run.sim.data, k = run.i, q = qOf(k), n = run.idxs.length, exam = run.mode === 'exam';
   const cats = d.categoryNames || {};
   const done = run.locked[k];
@@ -284,6 +372,7 @@ function renderQuestion() {
   parts.push(h('div', { class: 'bar', style: 'margin-bottom:14px' }, h('i', { style: 'width:' + Math.round((k + 1) / n * 100) + '%' })));
   if (exam && n > 1) parts.push(h('div', { class: 'nav' }, run.idxs.map((_, j) => h('button', { class: (j === k ? 'cur' : run.answers[j] !== null ? 'done' : ''), onclick: () => { run.i = j; renderQuestion(); } }, j + 1))));
   if (q.textIndex !== undefined && d.texts[q.textIndex]) { const t = d.texts[q.textIndex]; parts.push(h('div', { class: 'reading' }, t.title ? h('b', { class: 't' }, t.title) : null, t.content)); }
+  if (q.audioIndex !== undefined && d.audios && d.audios[q.audioIndex]) parts.push(audioPanel(d.audios[q.audioIndex], q.audioIndex, q));
   parts.push(h('p', { class: 'qtext' }, q.prompt));
   const opts = h('div', { class: 'opts' }, q.options.map((o, i) => {
     let cls = 'opt';
@@ -435,10 +524,10 @@ async function saveQueue() {
 }
 
 // ---- editor ----
-function blank() { return { id: null, title: '', skill: 'grammar', level: '', description: '', minutes: 0, published: false, data: { texts: [], categoryNames: { general: 'Général' }, questions: [] } }; }
+function blank() { return { id: null, title: '', skill: 'grammar', level: '', description: '', minutes: 0, published: false, data: { texts: [], audios: [], categoryNames: { general: 'Général' }, questions: [] } }; }
 async function openEditor(id) {
   let sim; try { sim = id ? deep(await dbGetSim(id)) : blank(); } catch (e) { return toast(e.message, true); }
-  sim.data = sim.data || {}; sim.data.texts = sim.data.texts || []; sim.data.categoryNames = sim.data.categoryNames || {}; sim.data.questions = sim.data.questions || [];
+  sim.data = sim.data || {}; sim.data.texts = sim.data.texts || []; sim.data.audios = (sim.data.audios || []).map(cleanAudio); sim.data.categoryNames = sim.data.categoryNames || {}; sim.data.questions = sim.data.questions || [];
   if (!Object.keys(sim.data.categoryNames).length) sim.data.categoryNames.general = 'Général';
   let dirty = false; const mark = () => { dirty = true; };
   const host = h('div', { class: 'card' }); const modal = h('div', { class: 'modal' }, host);
@@ -461,16 +550,38 @@ async function openEditor(id) {
       h('h3', { style: 'margin:20px 0 6px' }, 'Reading passages (optional)'), h('div', { class: 'sub' }, 'For comprehension texts: write the text once, then link several questions to it.'),
       D.texts.map((t, i) => h('div', { class: 'qcard' }, h('div', { class: 'row' }, h('b', {}, 'Passage ' + (i + 1)), h('span', { class: 'sp' }), h('button', { class: 'small danger', onclick: () => { if (!confirm('Remove this passage? Linked questions will lose it.')) return; D.texts.splice(i, 1); D.questions.forEach(q => { if (q.textIndex === i) delete q.textIndex; else if (q.textIndex > i) q.textIndex--; }); mark(); paint(); } }, 'Remove')), h('input', { placeholder: 'Title (e.g. Société — Le télétravail)', value: t.title, oninput: e => { t.title = e.target.value; mark(); } }), h('textarea', { rows: 6, placeholder: 'Text…', value: t.content, oninput: e => { t.content = e.target.value; mark(); } }))),
       h('button', { class: 'small', onclick: () => { D.texts.push({ title: '', content: '' }); mark(); paint(); } }, '+ Passage'),
+      h('h3', { style: 'margin:20px 0 6px' }, 'Listening audios (optional)'),
+      h('div', { class: 'sub' }, 'Write a script; the student’s device reads it aloud with a French voice. Use “Name: text” lines for dialogues, and [pause 2s] for silences. Voices depend on each device (see below).'),
+      D.audios.map((a, i) => audioEditor(a, i)),
+      h('button', { class: 'small', onclick: () => { D.audios.push(cleanAudio({ title: '', script: '', speakers: [{ name: 'Marie', lang: 'fr-FR', gender: 'female' }, { name: 'Paul', lang: 'fr-FR', gender: 'male' }] })); mark(); paint(); } }, '+ Audio'),
+      h('div', { class: 'sub', style: 'margin-top:6px' }, TTS.supported ? ('French voices found on this device: ' + (TTS.fr().map(v => v.name + ' (' + v.lang + ')').join(', ') || 'none — install a French voice to hear the tests')) : 'This browser cannot read text aloud.'),
       h('h3', { style: 'margin:20px 0 6px' }, 'Questions (' + D.questions.length + ')'),
       D.questions.map((q, i) => qEditor(q, i)),
       h('div', { class: 'row' }, h('button', { class: 'primary', onclick: () => { D.questions.push({ category: Object.keys(D.categoryNames)[0], prompt: '', options: ['', '', '', ''], correctIndex: 0, explanation: '' }); mark(); paint(); setTimeout(() => modal.scrollTo(0, modal.scrollHeight), 0); } }, '+ Question'), h('span', { class: 'sp' }), h('button', { class: 'primary', onclick: save }, 'Save'))));
     modal.scrollTop = mTop;
   }
+  function audioEditor(a, i) {
+    const spRow = (sp, j) => h('div', { class: 'oprow', style: 'flex-wrap:wrap' },
+      h('input', { value: sp.name, style: 'width:110px', title: 'Speaker name (used in the script)', oninput: e => { sp.name = e.target.value; mark(); } }),
+      h('select', { style: 'width:auto', onchange: e => { sp.lang = e.target.value; mark(); } }, Object.entries(ACCENTS).map(([k, v]) => h('option', { value: k, selected: k === sp.lang }, v))),
+      h('select', { style: 'width:auto', onchange: e => { sp.gender = e.target.value; mark(); } }, [['', 'Any voice'], ['female', 'Female'], ['male', 'Male']].map(([k, v]) => h('option', { value: k, selected: k === sp.gender }, v))),
+      h('label', { class: 'sub' }, 'Speed ', h('input', { type: 'number', step: '0.1', min: '0.5', max: '1.5', value: sp.rate, style: 'width:70px', oninput: e => { sp.rate = +e.target.value || 1; mark(); } })),
+      h('label', { class: 'sub' }, 'Pitch ', h('input', { type: 'number', step: '0.1', min: '0.5', max: '2', value: sp.pitch, style: 'width:70px', oninput: e => { sp.pitch = +e.target.value || 1; mark(); } })),
+      h('button', { class: 'small danger', disabled: a.speakers.length <= 1, onclick: () => { a.speakers.splice(j, 1); mark(); paint(); } }, '×'));
+    return h('div', { class: 'qcard' },
+      h('div', { class: 'row' }, h('b', {}, 'Audio ' + (i + 1)), h('span', { class: 'sp' }), h('button', { class: 'small danger', onclick: () => { if (!confirm('Remove this audio?')) return; D.audios.splice(i, 1); D.questions.forEach(q => { if (q.audioIndex === i) delete q.audioIndex; else if (q.audioIndex > i) q.audioIndex--; }); mark(); paint(); } }, 'Remove')),
+      h('div', { class: 'cols' }, h('div', {}, h('label', { class: 'f' }, 'Title'), h('input', { value: a.title, placeholder: 'Ex. Dialogue à la gare', oninput: e => { a.title = e.target.value; mark(); } })), h('div', {}, h('label', { class: 'f' }, 'Plays allowed in exam mode (0 = unlimited)'), h('input', { type: 'number', min: 0, value: a.plays, oninput: e => { a.plays = Math.max(0, parseInt(e.target.value, 10) || 0); mark(); } }))),
+      h('label', { class: 'f' }, 'Speakers (each gets a different voice when the device has several)'), a.speakers.map(spRow),
+      h('button', { class: 'small', onclick: () => { a.speakers.push({ name: 'Voix ' + (a.speakers.length + 1), lang: 'fr-FR', gender: '', rate: 1, pitch: 1 }); mark(); paint(); } }, '+ Speaker'),
+      h('label', { class: 'f' }, 'Script'), h('textarea', { rows: 7, placeholder: 'Marie: Bonjour, je voudrais un billet pour Lyon.\nPaul: Bien sûr. Aller simple ou aller-retour ?\n[pause 2s]\nMarie: Aller-retour, s\u2019il vous plaît.', value: a.script, oninput: e => { a.script = e.target.value; mark(); } }),
+      h('div', { class: 'row', style: 'margin-top:8px' }, h('button', { class: 'small primary', onclick: () => { if (!TTS.supported) return toast('This browser cannot read text aloud.', true); TTS.play(cleanAudio(a), {}, () => { }); } }, '▶ Test'), h('button', { class: 'small', onclick: () => TTS.stop() }, '■ Stop')));
+  }
   function qEditor(q, i) {
     const catSel = h('select', { onchange: e => { q.category = e.target.value; mark(); } }, Object.entries(D.categoryNames).map(([k, v]) => h('option', { value: k, selected: k === q.category }, v)));
+    const auSel = D.audios.length ? h('select', { onchange: e => { if (e.target.value === '') delete q.audioIndex; else q.audioIndex = +e.target.value; mark(); } }, h('option', { value: '' }, 'No audio'), D.audios.map((a, j) => h('option', { value: j, selected: q.audioIndex === j }, 'Audio ' + (j + 1) + (a.title ? ' — ' + a.title.slice(0, 30) : '')))) : null;
     const txSel = D.texts.length ? h('select', { onchange: e => { if (e.target.value === '') delete q.textIndex; else q.textIndex = +e.target.value; mark(); } }, h('option', { value: '' }, 'No passage'), D.texts.map((t, j) => h('option', { value: j, selected: q.textIndex === j }, 'Passage ' + (j + 1) + (t.title ? ' — ' + t.title.slice(0, 30) : '')))) : null;
     return h('div', { class: 'qcard' },
-      h('div', { class: 'row' }, h('b', {}, 'Q' + (i + 1)), catSel, txSel, h('span', { class: 'sp' }),
+      h('div', { class: 'row' }, h('b', {}, 'Q' + (i + 1)), catSel, txSel, auSel, h('span', { class: 'sp' }),
         h('button', { class: 'small', disabled: i === 0, onclick: () => { D.questions.splice(i - 1, 0, D.questions.splice(i, 1)[0]); mark(); paint(); } }, '↑'), h('button', { class: 'small', disabled: i === D.questions.length - 1, onclick: () => { D.questions.splice(i + 1, 0, D.questions.splice(i, 1)[0]); mark(); paint(); } }, '↓'),
         h('button', { class: 'small', onclick: () => { D.questions.splice(i + 1, 0, deep(q)); mark(); paint(); } }, 'Duplicate'), h('button', { class: 'small danger', onclick: () => { D.questions.splice(i, 1); mark(); paint(); } }, 'Delete')),
       h('label', { class: 'f' }, 'Question'), h('textarea', { rows: 2, value: q.prompt, oninput: e => { q.prompt = e.target.value; mark(); } }),
