@@ -289,7 +289,7 @@ function audioPanel(a, idx, q) {                  // player: listen button + rem
   const noVoice = TTS.supported && TTS.voices.length && !TTS.fr().length;
   const done = !exam && run.locked[run.i];
   return h('div', { class: 'reading', style: 'white-space:normal' },
-    h('div', { class: 'row' }, h('b', {}, '🎧 ' + (a.title || 'Document sonore')), h('span', { class: 'sp' }), exam ? null : [h('span', { class: 'sub' }, 'Vitesse'), speed]),
+    h('div', { class: 'row' }, h('b', {}, '🎧 ' + (run.sim.data.audios.length > 1 ? 'Document ' + (idx + 1) + '/' + run.sim.data.audios.length + ' — ' : '') + (a.title || 'Document sonore')), h('span', { class: 'sp' }), exam ? null : [h('span', { class: 'sub' }, 'Vitesse'), speed]),
     h('div', { class: 'row', style: 'margin-top:8px' }, btn, info),
     !TTS.supported ? h('div', { class: 'warn' }, 'Ton navigateur ne prend pas en charge la lecture audio. Essaie Chrome, Edge ou Safari.') : noVoice ? h('div', { class: 'warn' }, 'Aucune voix française n\u2019est installée sur cet appareil : le son peut être incorrect. Installe une voix française dans les paramètres de ton téléphone ou ordinateur.') : null,
     done ? h('details', { style: 'margin-top:8px' }, h('summary', {}, 'Transcription'), h('div', { style: 'white-space:pre-line;margin-top:6px' }, a.script.replace(/^\[\s*pause[^\]]*\]\s*$/gim, ''))) : null);
