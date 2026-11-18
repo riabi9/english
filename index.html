@@ -2,7 +2,14 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#4f46e5">
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Classroom">
     <title>Classroom Portal</title>
     
     <!-- Tailwind CSS -->
@@ -91,6 +98,33 @@
             .bd-top { padding:6px 10px !important; }
         }
         @media (pointer: coarse) { .bd-btn { padding:9px; } }
+
+        /* ---- app-like mobile layout ---- */
+        html, body { -webkit-tap-highlight-color: transparent; }
+        #app-nav { display: none; }
+        @media (max-width: 767px) {
+            body { overscroll-behavior-y: contain; }
+            header.bg-white { padding-top: env(safe-area-inset-top); background: #4f46e5 !important; box-shadow: none !important; }
+            header.bg-white > div { height: 3rem !important; }
+            header.bg-white h1 { color: #fff !important; font-size: 1.05rem !important; }
+            header.bg-white svg { color: #fff !important; width: 1.5rem !important; height: 1.5rem !important; }
+            main { padding-bottom: calc(76px + env(safe-area-inset-bottom)) !important; }
+            #student-view { padding: 12px !important; }
+            #student-tabbar { display: none !important; }
+            #app-nav.on { display: flex; }
+            #app-nav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; background: #fff; border-top: 1px solid #e5e7eb; padding: 6px 4px calc(6px + env(safe-area-inset-bottom)); justify-content: space-around; box-shadow: 0 -2px 12px rgba(0,0,0,.06); }
+            #app-nav button { position: relative; flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 0; font-size: 11px; font-weight: 600; color: #9ca3af; background: none; border: 0; border-radius: 12px; min-height: 52px; }
+            #app-nav button.act { color: #4f46e5; }
+            #app-nav button.act .ic { background: #eef2ff; }
+            #app-nav .ic { width: 52px; height: 28px; border-radius: 14px; display: flex; align-items: center; justify-content: center; transition: background .15s; }
+            #app-nav .ic svg { width: 22px; height: 22px; }
+            #app-nav .bdg.hidden { display: none; }
+            #app-nav .bdg { position: absolute; top: 0; left: 55%; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; background: #ef4444; color: #fff; font-size: 10px; line-height: 17px; text-align: center; }
+            #student-view .rounded-xl { border-radius: 16px; }
+            button, select, input { min-height: 40px; }
+            #push-ask > div { margin-bottom: env(safe-area-inset-bottom); }
+        }
+        @media (display-mode: standalone) { body { user-select: none; -webkit-user-select: none; } input, textarea, [contenteditable] { user-select: text; -webkit-user-select: text; } }
     </style>
 </head>
 <body class="text-gray-800 h-screen flex flex-col overflow-hidden relative">
@@ -6271,6 +6305,8 @@ function renderLiveEx() {
       <div class="text-xs text-gray-500 mb-4">Students with notifications on: ${stats}</div>
       <h4 class="font-semibold text-gray-800 mb-2">Scheduled</h4>
       <ul id="n-list" class="space-y-2 mb-6">${rows || '<li class="text-gray-500">Nothing scheduled yet.</li>'}</ul>
+      <div class="mb-6"><div class="flex items-center justify-between mb-2"><h4 class="font-semibold text-gray-800">Messages students can see</h4>${(st.messages || []).length ? '<button data-m="all" class="text-sm text-red-600 hover:underline">Clear all</button>' : ''}</div>
+        <ul id="n-msgs" class="divide-y border rounded-lg bg-white">${(st.messages || []).map(m => `<li class="flex items-center justify-between gap-3 px-3 py-2 text-sm"><span class="min-w-0 truncate">${KINDS[m.kind] ? KINDS[m.kind][1] : ''} ${esc(m.title)} <span class="text-gray-400">&bull; ${m.class_name === '*' ? 'All classes' : esc(m.class_name)} &bull; ${esc(new Date(m.created_at).toLocaleDateString([], { day: 'numeric', month: 'short' }))}</span></span><button data-m="${m.id}" class="text-red-500 hover:underline flex-shrink-0">Delete</button></li>`).join('') || '<li class="px-3 py-2 text-gray-500">No messages.</li>'}</ul></div>
       <div class="border rounded-lg p-4 bg-indigo-50/40 space-y-3">
         <h4 class="font-semibold text-gray-800">${editing ? 'Edit notification' : 'New notification'}</h4>
         <div class="grid sm:grid-cols-2 gap-3">
@@ -6318,6 +6354,7 @@ function renderLiveEx() {
     $('n-save').onclick = save;
     if ($('n-cancel')) $('n-cancel').onclick = () => { editing = null; render(); };
     $('n-list').onclick = rowAction;
+    $('n-msgs').parentElement.onclick = async e => { const b = e.target.closest('button[data-m]'); if (!b) return; try { if (b.dataset.m === 'all') { if (!confirm('Delete all messages for every class?')) return; await call({ action: 'clear_messages' }); } else await call({ action: 'delete_message', id: b.dataset.m }); await load(); } catch (er) { alert(er.message); } };
   }
   async function save() {
     const out = $('n-out'); out.className = 'ml-2 text-sm text-red-600';
@@ -6468,6 +6505,12 @@ function renderLiveEx() {
   let msgs = [], cls = '';
   const esc = v => escapeHtml(String(v == null ? '' : v));
   const seenKey = () => 'portal_msgs_seen_' + currentStudentClass;
+  const hidKey = () => 'portal_msgs_hidden_' + currentStudentClass;
+  const hidden = () => { try { return JSON.parse(localStorage.getItem(hidKey()) || '[]'); } catch (e) { return []; } };
+  const setHidden = a => { try { localStorage.setItem(hidKey(), JSON.stringify(a.slice(-300))); } catch (e) {} };
+  async function closeTray() { try { const reg = await navigator.serviceWorker.getRegistration(); if (reg) (await reg.getNotifications()).forEach(n => n.close()); } catch (e) {} }
+  window.msgDismiss = function (i) { const m = msgs[i]; if (!m) return; setHidden(hidden().concat([m.id])); msgs.splice(i, 1); render(); dot(); };
+  window.msgClearAll = function () { if (!msgs.length || !confirm('Clear all messages?')) return; setHidden(hidden().concat(msgs.map(m => m.id))); msgs = []; render(); dot(); closeTray(); };
   const getSeen = () => { try { return Number(localStorage.getItem(seenKey()) || 0); } catch (e) { return 0; } };
   function yt(text) {
     const m = String(text || '').match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?(?:[^"'\s]*&)?v=|embed\/|shorts\/|v\/)|youtube-nocookie\.com\/embed\/)([A-Za-z0-9_-]{11})/);
@@ -6488,13 +6531,13 @@ function renderLiveEx() {
     const box = document.getElementById('student-messages-container'); if (!box) return;
     const seen = getSeen();
     if (!msgs.length) { box.innerHTML = '<div class="text-center text-gray-500 py-8">No messages yet. Your teacher\'s notifications will appear here.</div>'; return; }
-    box.innerHTML = msgs.map((m, i) => {
+    box.innerHTML = '<div class="flex justify-end"><button onclick="window.msgClearAll()" class="text-sm text-gray-500 hover:text-red-600 underline">Clear all</button></div>' + msgs.map((m, i) => {
       const th = thumbFor(m), isNew = new Date(m.created_at).getTime() > seen, hasLink = !!m.link_url;
       const main = m.kind === 'custom' ? (hasLink ? 1 : 0) : 1;
       return `<div class="bg-white rounded-xl shadow-sm border ${isNew ? 'border-indigo-300' : 'border-gray-200'} overflow-hidden">
         ${th ? `<button onclick="window.msgAct(${i}, true)" class="relative block w-full bg-black"><img src="${esc(th)}" alt="" class="w-full max-h-60 object-cover opacity-95"><span class="absolute inset-0 flex items-center justify-center"><span class="w-14 h-14 rounded-full bg-red-600/90 text-white flex items-center justify-center text-2xl">&#9654;</span></span></button>` : ''}
         <div class="p-4 sm:p-5">
-          <div class="flex items-start justify-between gap-3"><h3 class="font-bold text-gray-900">${isNew ? '<span class="inline-block w-2 h-2 rounded-full bg-indigo-500 mr-2 align-middle"></span>' : ''}${esc(m.title)}</h3><span class="text-xs text-gray-400 whitespace-nowrap">${esc(ago(m.created_at))}</span></div>
+          <div class="flex items-start justify-between gap-3"><h3 class="font-bold text-gray-900">${isNew ? '<span class="inline-block w-2 h-2 rounded-full bg-indigo-500 mr-2 align-middle"></span>' : ''}${esc(m.title)}</h3><span class="text-xs text-gray-400 whitespace-nowrap">${esc(ago(m.created_at))} <button onclick="window.msgDismiss(${i})" class="ml-1 text-gray-400 hover:text-red-500 text-base leading-none" aria-label="Dismiss">&times;</button></span></div>
           ${m.body ? `<p class="text-sm text-gray-600 mt-1 whitespace-pre-line">${esc(m.body)}</p>` : ''}
           <div class="mt-3 flex flex-wrap gap-2">
             ${main ? `<button onclick="window.msgAct(${i})" class="px-4 py-2 text-sm font-medium rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">${m.kind === 'custom' ? (th ? '&#9654; Watch / open' : 'Open link &#8599;') : LABEL[m.kind]}</button>` : ''}
@@ -6513,11 +6556,11 @@ function renderLiveEx() {
     const c = currentStudentClass; if (!c || typeof supabaseClient === 'undefined' || !isDbConnected) return;
     const { data, error } = await supabaseClient.from('portal_messages').select('*').in('class_name', [c, '*']).order('created_at', { ascending: false }).limit(30);
     if (c !== currentStudentClass) return;
-    msgs = error || !data ? [] : data; dot();
+    msgs = (error || !data ? [] : data).filter(m => !hidden().includes(m.id)); dot();
     if (currentStudentTabId === 'messages') render();
   }
   window.msgOpened = async function () {
-    await load(); render();
+    await load(); render(); closeTray();
     const newest = msgs.length ? Math.max(...msgs.map(m => new Date(m.created_at).getTime())) : 0;
     try { if (newest) localStorage.setItem(seenKey(), String(newest)); } catch (e) {}
     setTimeout(dot, 4000);
@@ -6528,6 +6571,52 @@ function renderLiveEx() {
     load();
   }, 30000);
   setInterval(() => { const area = document.getElementById('student-content-area'); if (area && area.offsetParent !== null && currentStudentClass && cls !== currentStudentClass) { cls = currentStudentClass; msgs = []; load(); } }, 1500);
+})();
+</script>
+
+<script>
+// App-like phone UI: bottom tab bar + "Install app" button.
+(function(){
+  const ICONS = {
+    lessons: '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.25v13m0-13C10.8 5.5 9.2 5 7.5 5S4.2 5.5 3 6.25v13C4.2 18.5 5.8 18 7.5 18s3.3.5 4.5 1.25m0-13C13.2 5.5 14.8 5 16.5 5c1.7 0 3.3.5 4.5 1.25v13C19.8 18.5 18.2 18 16.5 18c-1.7 0-3.3.5-4.5 1.25"/></svg>',
+    homework: '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>',
+    messages: '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>',
+    board: '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.2 5.2l3.6 3.6M4 20l1-4L16.5 4.5a2.1 2.1 0 013 3L8 19l-4 1z"/></svg>'
+  };
+  const LABELS = { lessons: 'Lessons', homework: 'Homework', messages: 'Messages', board: 'Board' };
+  const nav = document.createElement('nav'); nav.id = 'app-nav';
+  nav.innerHTML = Object.keys(LABELS).map(k => `<button data-t="${k}"><span class="ic">${ICONS[k]}</span><span>${LABELS[k]}</span>${k === 'homework' || k === 'messages' ? `<span class="bdg hidden" id="nav-bdg-${k}"></span>` : ''}</button>`).join('');
+  document.body.appendChild(nav);
+  nav.addEventListener('click', e => { const b = e.target.closest('button[data-t]'); if (b) { if (window.liveExActive && b.dataset.t !== 'board') { window.switchStudentTab('board'); } else window.switchStudentTab(b.dataset.t); const m = document.querySelector('main'); if (m) m.scrollTo({ top: 0 }); } });
+  const bar = document.getElementById('tab-student-lessons'); if (bar && bar.parentElement) bar.parentElement.id = 'student-tabbar';
+  function sync() {
+    const area = document.getElementById('student-content-area'), sv = document.getElementById('student-view');
+    const show = area && area.offsetParent !== null && sv && sv.offsetParent !== null;
+    nav.classList.toggle('on', !!show);
+    nav.querySelectorAll('button').forEach(b => b.classList.toggle('act', b.dataset.t === currentStudentTabId));
+    [['homework', 'hw-count-dot'], ['messages', 'msg-count-dot']].forEach(([k, id]) => {
+      const src = document.getElementById(id), d = document.getElementById('nav-bdg-' + k); if (!src || !d) return;
+      const hid = src.classList.contains('hidden'); d.classList.toggle('hidden', hid); d.textContent = src.textContent;
+    });
+  }
+  setInterval(sync, 400); sync();
+
+  // install button
+  let deferred = null;
+  const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferred = e; showInstall(); });
+  window.addEventListener('appinstalled', () => { const b = document.getElementById('install-btn'); if (b) b.remove(); });
+  function showInstall(ios) {
+    if (standalone || document.getElementById('install-btn')) return;
+    const hdr = document.querySelector('header > div'); if (!hdr) return;
+    const b = document.createElement('button'); b.id = 'install-btn';
+    b.className = 'px-3 py-1.5 text-sm font-medium rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200 md:bg-indigo-600 md:text-white';
+    b.style.minHeight = '34px'; b.textContent = '⬇ Install app';
+    b.onclick = async () => { if (deferred) { deferred.prompt(); await deferred.userChoice.catch(() => {}); deferred = null; b.remove(); } else alert('On iPhone: tap the Share button, then "Add to Home Screen".'); };
+    hdr.insertBefore(b, document.getElementById('exit-admin-btn'));
+  }
+  if (!standalone && /iphone|ipad|ipod/i.test(navigator.userAgent)) setTimeout(() => showInstall(true), 1500);
+  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
 })();
 </script>
 </body>
