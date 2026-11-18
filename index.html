@@ -180,6 +180,7 @@
                     <button id="tab-student-lessons" onclick="window.switchStudentTab('lessons')" class="tab-active pb-3 text-sm font-medium whitespace-nowrap">Lessons</button>
                     <button id="tab-student-homework" onclick="window.switchStudentTab('homework')" class="tab-inactive pb-3 text-sm font-medium whitespace-nowrap">Homework <span id="hw-count-dot" class="hidden ml-1 text-xs font-bold bg-red-500 text-white rounded-full px-1.5 py-0.5"></span></button>
                     <button id="tab-student-messages" onclick="window.switchStudentTab('messages')" class="tab-inactive pb-3 text-sm font-medium whitespace-nowrap">Messages <span id="msg-count-dot" class="hidden ml-1 text-xs font-bold bg-red-500 text-white rounded-full px-1.5 py-0.5"></span></button>
+                    <button id="tab-student-sessions" onclick="window.switchStudentTab('sessions')" class="hidden tab-inactive pb-3 text-sm font-medium whitespace-nowrap">Attendance</button>
                     <button id="tab-student-board" onclick="window.switchStudentTab('board')" class="tab-inactive pb-3 text-sm font-medium whitespace-nowrap">Live Board <span id="board-live-dot" class="hidden bd-pulse inline-block w-2 h-2 rounded-full bg-red-500 align-middle ml-1"></span></button>
                 </div>
 
@@ -187,6 +188,7 @@
                 <div id="student-exercises-container" class="hidden fade-in space-y-4"></div>
                 <div id="student-homework-container" class="hidden fade-in space-y-5"></div>
                 <div id="student-messages-container" class="hidden fade-in space-y-4"></div>
+                <div id="student-sessions-container" class="hidden fade-in space-y-4"></div>
                 <div id="student-board-container" class="hidden fade-in">
                     <div id="student-live-ex-slot" class="hidden mb-4">
                         <div class="flex items-center gap-2 px-4 py-2 mb-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800"><span class="bd-pulse inline-block w-2 h-2 rounded-full bg-red-500"></span><span id="live-ex-banner-text" class="font-medium"></span></div>
@@ -237,12 +239,19 @@
                 <button id="tab-admin-lessons" onclick="window.switchAdminTab('lessons')" class="tab-inactive pb-3 px-2 text-sm font-medium">Publish Lessons</button>
                 <button id="tab-admin-homework" onclick="window.switchAdminTab('homework')" class="tab-inactive pb-3 px-2 text-sm font-medium whitespace-nowrap">Homework &amp; Exercises</button>
                 <button id="tab-admin-board" onclick="window.switchAdminTab('board')" class="tab-inactive pb-3 px-2 text-sm font-medium whitespace-nowrap">Live Board</button>
+                <button id="tab-admin-sessions" onclick="window.switchAdminTab('sessions')" class="tab-inactive pb-3 px-2 text-sm font-medium whitespace-nowrap">&#128197; Sessions</button>
                 <button id="tab-admin-notify" onclick="window.switchAdminTab('notify')" class="tab-inactive pb-3 px-2 text-sm font-medium whitespace-nowrap">&#128276; Notifications</button>
                 <button id="tab-admin-results" onclick="window.switchAdminTab('results')" class="tab-inactive pb-3 px-2 text-sm font-medium">Results</button>
             </div>
 
             <!-- Admin: Classes Tab -->
             <div id="admin-classes-container" class="block fade-in space-y-6">
+                <div class="bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-200 flex flex-wrap items-center gap-3 justify-between">
+                    <div><h3 class="text-lg font-bold">Backup &amp; export</h3><p class="text-sm text-gray-500">Download everything (classes, students, lessons, exercises, homework, results, sessions, attendance...).</p></div>
+                    <div class="flex gap-2"><button onclick="window.exportAll('xlsx')" class="px-4 py-2 text-sm font-medium rounded-lg bg-emerald-600 text-white hover:bg-emerald-700">Export to Excel</button>
+                    <button onclick="window.exportAll('json')" class="px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 bg-white hover:bg-gray-50">Full backup (JSON)</button></div>
+                    <span id="export-msg" class="w-full text-sm text-gray-500"></span>
+                </div>
                 <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
                     <h3 class="text-lg font-bold mb-4">Class Management</h3>
                     <div class="flex gap-4 max-w-md mb-6">
@@ -498,6 +507,8 @@
             </div>
 
             <!-- Admin: Results Tab -->
+            <div id="admin-sessions-container" class="hidden fade-in"><div id="sess-root" class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 text-sm text-gray-500">Loading...</div></div>
+
             <div id="admin-notify-container" class="hidden fade-in"><div id="notify-root" class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 text-sm text-gray-500">Loading...</div></div>
 
             <div id="admin-results-container" class="hidden fade-in">
@@ -680,8 +691,9 @@
         let currentStudentTabId = 'lessons';
         let studentReturnTab = 'homework';
         window.switchStudentTab = function(tabId) {
-            const tabs = ['lessons', 'homework', 'messages', 'board'];
+            const tabs = ['lessons', 'homework', 'messages', 'sessions', 'board'];
             if (tabId === 'messages' && window.msgOpened) setTimeout(window.msgOpened, 0);
+            if (tabId === 'sessions' && window.mySessOpened) setTimeout(window.mySessOpened, 0);
             if (!tabs.includes(tabId)) tabId = 'homework';
             currentStudentTabId = tabId;
             tabs.forEach(t => {
@@ -697,12 +709,13 @@
         window.switchAdminTab = function(tabId) {
             let hwSub = null;
             if (tabId === 'exercises') { tabId = 'homework'; hwSub = 'exercises'; }
-            const tabs = ['classes', 'lessons', 'homework', 'board', 'notify', 'results'];
+            const tabs = ['classes', 'lessons', 'homework', 'board', 'sessions', 'notify', 'results'];
             tabs.forEach(t => {
                 document.getElementById(`tab-admin-${t}`).className = (t === tabId) ? "tab-active pb-3 px-2 text-sm font-medium" : "tab-inactive pb-3 px-2 text-sm font-medium";
                 if(t === tabId) document.getElementById(`admin-${t}-container`).classList.remove('hidden');
                 else document.getElementById(`admin-${t}-container`).classList.add('hidden');
             });
+            if (tabId === 'sessions' && window.sessOpen) window.sessOpen();
             if (tabId === 'notify' && window.notifyOpen) window.notifyOpen();
             if (tabId === 'results') window.loadResults(false);
             if (tabId === 'board') window.adminBoardOpen();
@@ -991,7 +1004,7 @@ window.adminDeleteLesson = async function(id) {
             if (window.liveExActive && !liveOpening) { alert('Your teacher is running a live exercise. Please finish it first (Live Board tab).'); window.switchStudentTab('board'); return; }
             if (!liveOpening) {
                 studentReturnTab = currentStudentTabId;
-                ['lessons', 'homework', 'messages', 'board'].forEach(t => document.getElementById(`student-${t}-container`).classList.add('hidden'));
+                ['lessons', 'homework', 'messages', 'sessions', 'board'].forEach(t => document.getElementById(`student-${t}-container`).classList.add('hidden'));
             }
             activeExerciseData = ex;
             studentAnswers = {};
@@ -6583,7 +6596,8 @@ function renderLiveEx() {
     messages: '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>',
     board: '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.2 5.2l3.6 3.6M4 20l1-4L16.5 4.5a2.1 2.1 0 013 3L8 19l-4 1z"/></svg>'
   };
-  const LABELS = { lessons: 'Lessons', homework: 'Homework', messages: 'Messages', board: 'Board' };
+  ICONS.sessions = '<svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3M4 11h16M5 5h14a1 1 0 011 1v13a1 1 0 01-1 1H5a1 1 0 01-1-1V6a1 1 0 011-1z"/></svg>';
+  const LABELS = { lessons: 'Lessons', homework: 'Homework', messages: 'Messages', sessions: 'Sessions', board: 'Board' };
   const nav = document.createElement('nav'); nav.id = 'app-nav';
   nav.innerHTML = Object.keys(LABELS).map(k => `<button data-t="${k}"><span class="ic">${ICONS[k]}</span><span>${LABELS[k]}</span>${k === 'homework' || k === 'messages' ? `<span class="bdg hidden" id="nav-bdg-${k}"></span>` : ''}</button>`).join('');
   document.body.appendChild(nav);
@@ -6594,6 +6608,7 @@ function renderLiveEx() {
     const show = area && area.offsetParent !== null && sv && sv.offsetParent !== null;
     nav.classList.toggle('on', !!show);
     nav.querySelectorAll('button').forEach(b => b.classList.toggle('act', b.dataset.t === currentStudentTabId));
+    const sb = nav.querySelector('[data-t=sessions]'), st = document.getElementById('tab-student-sessions'); if (sb && st) sb.style.display = st.classList.contains('hidden') ? 'none' : '';
     [['homework', 'hw-count-dot'], ['messages', 'msg-count-dot']].forEach(([k, id]) => {
       const src = document.getElementById(id), d = document.getElementById('nav-bdg-' + k); if (!src || !d) return;
       const hid = src.classList.contains('hidden'); d.classList.toggle('hidden', hid); d.textContent = src.textContent;
@@ -6617,6 +6632,207 @@ function renderLiveEx() {
   }
   if (!standalone && /iphone|ipad|ipod/i.test(navigator.userAgent)) setTimeout(() => showInstall(true), 1500);
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
+})();
+</script>
+
+<script>
+// ---------- Backup / export ----------
+(function(){
+  const FN = SUPABASE_URL + '/functions/v1/reminders';
+  async function call(body) {
+    if (!window.__adminPw) { const p = prompt('Admin password:'); if (!p) throw new Error('Password needed.'); window.__adminPw = p; }
+    const r = await fetch(FN, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + SUPABASE_ANON_KEY }, body: JSON.stringify({ ...body, password: window.__adminPw }) });
+    let j = {}; try { j = await r.json(); } catch (e) {}
+    if (r.status === 401) window.__adminPw = '';
+    if (!r.ok) throw new Error(j.error || ('Server error ' + r.status + (r.status === 404 ? ' (function not deployed)' : '')));
+    return j;
+  }
+  window.__adminCall = call;
+  const save = (blob, name) => { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500); };
+  const cell = v => v == null ? '' : (typeof v === 'object' ? JSON.stringify(v) : v);
+  window.exportAll = async function (kind) {
+    const msg = document.getElementById('export-msg'); msg.textContent = 'Preparing export...'; msg.className = 'w-full text-sm text-gray-500';
+    try {
+      const d = await call({ action: 'export' }), stamp = new Date().toISOString().slice(0, 10);
+      if (kind === 'json') { save(new Blob([JSON.stringify(d, null, 1)], { type: 'application/json' }), 'classroom-backup-' + stamp + '.json'); }
+      else {
+        const wb = XLSX.utils.book_new(), T = d.tables;
+        const trunc = o => { const r = {}; Object.keys(o).forEach(k => { let v = cell(o[k]); if (typeof v === 'string' && v.length > 32000) v = v.slice(0, 32000) + '...(cut, see JSON backup)'; r[k] = v; }); return r; };
+        const add = (name, rows) => { if (rows && rows.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.map(trunc)), name.slice(0, 31)); };
+        const stu = {}; (T.portal_students || []).forEach(x => stu[String(x.id)] = x);
+        const ses = {}; (T.portal_sessions || []).forEach(x => ses[x.id] = x);
+        add('Attendance', (T.portal_attendance || []).map(a => { const x = ses[a.session_id] || {}; return { Class: x.class_name, Date: x.starts_at ? new Date(x.starts_at).toLocaleString() : '', Student: a.student_name || (stu[a.student_id] || {}).name, Status: a.status, 'Session status': x.status, Counts: x.counts }; }));
+        Object.keys(T).forEach(n => add(n.replace(/^portal_/, ''), T[n]));
+        if (!wb.SheetNames.length) throw new Error('Nothing to export yet.');
+        XLSX.writeFile(wb, 'classroom-export-' + stamp + '.xlsx');
+      }
+      const tot = Object.values(d.tables).reduce((a, r) => a + r.length, 0);
+      msg.textContent = 'Done: ' + tot + ' rows from ' + Object.keys(d.tables).length + ' tables' + (d.skipped && d.skipped.length ? ' (not found: ' + d.skipped.join(', ') + ')' : '') + '.'; msg.className = 'w-full text-sm text-emerald-700';
+    } catch (e) { msg.textContent = e.message; msg.className = 'w-full text-sm text-red-600'; }
+  };
+})();
+
+// ---------- Admin: Sessions & attendance ----------
+(function(){
+  const $ = id => document.getElementById(id), esc = v => escapeHtml(String(v == null ? '' : v)), call = b => window.__adminCall(b);
+  const DAYS = [[1,'Mon'],[2,'Tue'],[3,'Wed'],[4,'Thu'],[5,'Fri'],[6,'Sat'],[0,'Sun']];
+  const ST = { present: ['Present', 'bg-emerald-100 text-emerald-800'], late: ['Late', 'bg-amber-100 text-amber-800'], absent: ['Absent', 'bg-red-100 text-red-800'], excused: ['Excused', 'bg-sky-100 text-sky-800'] };
+  const SS = { scheduled: ['Scheduled', 'bg-gray-100 text-gray-700'], held: ['Done', 'bg-emerald-100 text-emerald-800'], cancelled: ['Cancelled', 'bg-gray-200 text-gray-500'], postponed: ['Postponed', 'bg-amber-100 text-amber-800'] };
+  const pad = n => String(n).padStart(2, '0');
+  const toLocal = d => { const x = new Date(d); return x.getFullYear() + '-' + pad(x.getMonth() + 1) + '-' + pad(x.getDate()) + ' ' + pad(x.getHours()) + ':' + pad(x.getMinutes()); };
+  let cls = '', ov = null, filter = 'all', openAtt = null;
+  const classNames = () => (typeof globalClasses !== 'undefined' ? globalClasses : []).map(c => c.name);
+  function attOf(sid) { return (ov.attendance || []).filter(a => a.session_id === sid); }
+  function render() {
+    const names = classNames(); if (!cls || !names.includes(cls)) cls = names[0] || '';
+    const sel = `<select id="se-class" class="border rounded px-2 py-1.5 bg-white">${names.map(c => `<option ${c === cls ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>`;
+    if (!cls) { $('sess-root').innerHTML = 'Create a class first.'; return; }
+    if (!ov) { $('sess-root').innerHTML = `<div class="mb-3">${sel}</div>Loading...`; $('se-class').onchange = e => { cls = e.target.value; load(); }; return; }
+    const sm = ov.summary, pl = ov.plan, left = sm.left;
+    const planTxt = pl.plan_type === 'total' ? `Pack of ${sm.total}: <b>${sm.used}</b> used` : pl.plan_type === 'monthly' ? `Monthly allowance ${sm.total}: <b>${sm.used}</b> used this month` : 'Tracking only (no limit)';
+    const warn = left != null && left <= 3 ? `<span class="ml-2 text-xs font-semibold px-2 py-0.5 rounded-full ${left === 0 ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800'}">${left === 0 ? 'No sessions left' : 'Only ' + left + ' left'}</span>` : '';
+    const now = Date.now(), list = ov.sessions.filter(x => filter === 'all' ? true : filter === 'upcoming' ? new Date(x.starts_at) >= now && x.status === 'scheduled' : new Date(x.starts_at) < now || x.status !== 'scheduled');
+    const up = list.filter(x => x.status === 'scheduled' && new Date(x.starts_at) >= now).sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at));
+    const rest = list.filter(x => !up.includes(x)).sort((a, b) => new Date(b.starts_at) - new Date(a.starts_at));
+    const row = x => {
+      const at = attOf(x.id), c = k => at.filter(a => a.status === k).length, d = new Date(x.starts_at), s = SS[x.status] || SS.scheduled;
+      return `<li class="border rounded-lg p-3 bg-white"><div class="flex flex-wrap items-center justify-between gap-2">
+        <div><b>${esc(d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' }))}</b> ${esc(d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))} <span class="text-gray-500">&bull; ${x.minutes} min</span>
+          <span class="ml-1 text-xs px-2 py-0.5 rounded-full ${s[1]}">${s[0]}</span>${x.counts ? '' : ' <span class="text-xs px-2 py-0.5 rounded-full bg-violet-100 text-violet-800">free</span>'}
+          ${at.length ? `<span class="ml-2 text-xs text-gray-500">P ${c('present')} &bull; L ${c('late')} &bull; A ${c('absent')} &bull; E ${c('excused')}</span>` : ''}${x.note ? `<span class="block text-xs text-gray-500">${esc(x.note)}</span>` : ''}</div>
+        <div class="flex gap-3 text-sm"><button data-a="att" data-id="${x.id}" class="text-indigo-600 hover:underline">Attendance</button>
+          <button data-a="${x.status === 'cancelled' ? 'restore' : 'cancel'}" data-id="${x.id}" class="text-amber-600 hover:underline">${x.status === 'cancelled' ? 'Restore' : 'Cancel'}</button>
+          <button data-a="move" data-id="${x.id}" class="text-gray-600 hover:underline">Move</button>
+          <button data-a="free" data-id="${x.id}" class="text-violet-600 hover:underline">${x.counts ? 'Mark free' : 'Mark counted'}</button>
+          <button data-a="del" data-id="${x.id}" class="text-red-500 hover:underline">Delete</button></div></div>
+        ${openAtt === x.id ? attPanel(x) : ''}</li>`;
+    };
+    const per = ov.students.map(s => { const a = (ov.attendance || []).filter(y => y.student_id === s.id), c = k => a.filter(y => y.status === k).length, att = c('present') + c('late'), tot = att + c('absent'); return `<tr class="border-t"><td class="py-1 pr-3">${esc(s.name)}</td><td>${c('present')}</td><td>${c('late')}</td><td>${c('absent')}</td><td>${c('excused')}</td><td>${tot ? Math.round(att / tot * 100) + '%' : '-'}</td></tr>`; }).join('');
+    $('sess-root').innerHTML = `
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-4"><h3 class="text-lg font-bold text-gray-900">&#128197; Sessions &amp; attendance</h3>${sel}</div>
+      <div class="rounded-lg bg-indigo-50 border border-indigo-100 p-4 mb-5"><div class="text-gray-800">${planTxt}${warn}</div>
+        <div class="text-3xl font-bold text-indigo-700 mt-1">${left == null ? sm.held_all : left}<span class="text-sm font-medium text-gray-500 ml-2">${left == null ? 'sessions done' : 'sessions left'}</span></div>
+        <div class="text-xs text-gray-500 mt-1">${sm.held_all} done &bull; ${sm.upcoming} upcoming &bull; ${sm.cancelled} cancelled</div></div>
+      <details class="mb-5" ${pl.plan_type === 'none' && !pl.total ? 'open' : ''}><summary class="cursor-pointer font-semibold text-gray-800">Plan &amp; visibility</summary>
+        <div class="grid sm:grid-cols-3 gap-3 mt-3">
+          <label class="block"><span class="text-xs font-medium text-gray-600">How sessions are counted</span><select id="pl-type" class="border rounded px-2 py-1.5 w-full bg-white"><option value="total" ${pl.plan_type === 'total' ? 'selected' : ''}>Pack / course total</option><option value="monthly" ${pl.plan_type === 'monthly' ? 'selected' : ''}>Monthly allowance</option><option value="none" ${pl.plan_type === 'none' ? 'selected' : ''}>Just track attendance</option></select></label>
+          <label class="block"><span class="text-xs font-medium text-gray-600">Number of sessions</span><input id="pl-total" type="number" min="0" class="border rounded px-2 py-1.5 w-full" value="${pl.total || 0}"></label>
+          <label class="block"><span class="text-xs font-medium text-gray-600">Note (optional)</span><input id="pl-note" class="border rounded px-2 py-1.5 w-full" value="${esc(pl.note)}"></label></div>
+        <label class="block mt-3"><input id="pl-see" type="checkbox" ${pl.students_see ? 'checked' : ''}> Students of this class can see their own attendance and sessions left</label>
+        <button id="pl-save" class="mt-3 bg-indigo-600 text-white px-4 py-1.5 rounded-lg">Save plan</button><span id="pl-out" class="ml-2 text-sm"></span></details>
+      <details class="mb-5"><summary class="cursor-pointer font-semibold text-gray-800">Add sessions</summary>
+        <div class="mt-3 space-y-3"><div><span class="text-xs font-medium text-gray-600">Repeat weekly on (leave empty to add a single session on the start date)</span>
+          <div class="flex flex-wrap gap-3 mt-1">${DAYS.map(([n, l]) => `<label><input type="checkbox" class="se-day" value="${n}"> ${l}</label>`).join('')}</div></div>
+        <div class="grid sm:grid-cols-4 gap-3">
+          <label class="block"><span class="text-xs font-medium text-gray-600">Start date</span><input id="se-date" type="date" class="border rounded px-2 py-1.5 w-full" value="${toLocal(Date.now()).slice(0, 10)}"></label>
+          <label class="block"><span class="text-xs font-medium text-gray-600">Time</span><input id="se-time" type="time" class="border rounded px-2 py-1.5 w-full" value="18:00"></label>
+          <label class="block"><span class="text-xs font-medium text-gray-600">Minutes</span><input id="se-min" type="number" min="5" class="border rounded px-2 py-1.5 w-full" value="60"></label>
+          <label class="block"><span class="text-xs font-medium text-gray-600">How many sessions</span><input id="se-count" type="number" min="1" max="200" class="border rounded px-2 py-1.5 w-full" value="12"></label></div>
+        <button id="se-create" class="bg-indigo-600 text-white px-4 py-1.5 rounded-lg">Create sessions</button><span id="se-out" class="ml-2 text-sm"></span></div></details>
+      <div class="flex items-center justify-between mb-2"><h4 class="font-semibold text-gray-800">Sessions</h4>
+        <select id="se-filter" class="border rounded px-2 py-1 text-sm bg-white"><option value="all" ${filter === 'all' ? 'selected' : ''}>All</option><option value="upcoming" ${filter === 'upcoming' ? 'selected' : ''}>Upcoming</option><option value="past" ${filter === 'past' ? 'selected' : ''}>Past / done</option></select></div>
+      <ul id="se-list" class="space-y-2 mb-6">${up.concat(rest).map(row).join('') || '<li class="text-gray-500">No sessions yet. Use "Add sessions".</li>'}</ul>
+      <h4 class="font-semibold text-gray-800 mb-1">Per student</h4>
+      <div class="overflow-x-auto"><table class="text-sm"><thead><tr class="text-left text-xs text-gray-500"><th class="pr-3">Student</th><th class="pr-3">Present</th><th class="pr-3">Late</th><th class="pr-3">Absent</th><th class="pr-3">Excused</th><th>Rate</th></tr></thead><tbody>${per || '<tr><td class="text-gray-500 py-1">No students.</td></tr>'}</tbody></table></div>`;
+    $('se-class').onchange = e => { cls = e.target.value; openAtt = null; ov = null; render(); load(); };
+    $('se-filter').onchange = e => { filter = e.target.value; render(); };
+    $('pl-save').onclick = savePlan; $('se-create').onclick = create; $('se-list').onclick = rowAct;
+    if (openAtt) wireAtt();
+  }
+  function attPanel(x) {
+    const cur = {}; attOf(x.id).forEach(a => cur[a.student_id] = a.status);
+    return `<div class="mt-3 border-t pt-3" id="att-panel"><div class="flex justify-between mb-2"><b class="text-sm">Attendance</b><button data-all="1" class="text-sm text-indigo-600 hover:underline">Mark everyone present</button></div>
+      <div class="space-y-1">${ov.students.map(s => `<div class="flex flex-wrap items-center gap-2" data-sid="${esc(s.id)}" data-name="${esc(s.name)}"><span class="w-40 truncate text-sm">${esc(s.name)}</span>
+        ${Object.entries(ST).map(([k, v]) => `<button type="button" data-k="${k}" class="att-b text-xs px-2.5 py-1 rounded-full border ${cur[s.id] === k ? v[1] + ' border-transparent font-semibold' : 'bg-white text-gray-500'}">${v[0]}</button>`).join('')}</div>`).join('') || '<span class="text-gray-500 text-sm">No students in this class.</span>'}</div>
+      <div class="mt-3"><button id="att-save" class="bg-emerald-600 text-white px-4 py-1.5 rounded-lg text-sm">Save attendance (marks the session as done)</button><span id="att-out" class="ml-2 text-sm"></span></div></div>`;
+  }
+  function wireAtt() {
+    const pnl = $('att-panel'); if (!pnl) return;
+    pnl.onclick = e => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.all) { pnl.querySelectorAll('[data-sid]').forEach(r => mark(r, 'present')); return; }
+      if (b.dataset.k) mark(b.closest('[data-sid]'), b.dataset.k);
+    };
+    $('att-save').onclick = async () => {
+      const items = [...pnl.querySelectorAll('[data-sid]')].map(r => ({ student_id: r.dataset.sid, student_name: r.dataset.name, status: r.dataset.cur })).filter(i => i.status);
+      try { await call({ action: 'att_save', session_id: openAtt, items, mark_held: true }); openAtt = null; await load(); } catch (e) { $('att-out').textContent = e.message; $('att-out').className = 'ml-2 text-sm text-red-600'; }
+    };
+    pnl.querySelectorAll('[data-sid]').forEach(r => { const on = r.querySelector('.att-b.font-semibold'); if (on) r.dataset.cur = on.dataset.k; });
+  }
+  function mark(row, k) {
+    row.dataset.cur = k;
+    row.querySelectorAll('.att-b').forEach(b => { const on = b.dataset.k === k; b.className = 'att-b text-xs px-2.5 py-1 rounded-full border ' + (on ? ST[b.dataset.k][1] + ' border-transparent font-semibold' : 'bg-white text-gray-500'); });
+  }
+  async function savePlan() {
+    const out = $('pl-out');
+    try { await call({ action: 'sess_plan_save', class_name: cls, plan_type: $('pl-type').value, total: $('pl-total').value, students_see: $('pl-see').checked, note: $('pl-note').value }); await load(); }
+    catch (e) { out.textContent = e.message; out.className = 'ml-2 text-sm text-red-600'; }
+  }
+  async function create() {
+    const out = $('se-out'); out.className = 'ml-2 text-sm text-red-600';
+    const d = $('se-date').value, t = $('se-time').value || '18:00', mins = Number($('se-min').value) || 60, n = Math.min(200, Math.max(1, Number($('se-count').value) || 1));
+    const days = [...document.querySelectorAll('.se-day')].filter(x => x.checked).map(x => Number(x.value));
+    if (!d) { out.textContent = 'Pick a start date.'; return; }
+    const rows = [], cur = new Date(d + 'T' + t);
+    if (!days.length) rows.push({ starts_at: cur.toISOString(), minutes: mins });
+    else { for (let i = 0; i < 800 && rows.length < n; i++) { const x = new Date(cur); x.setDate(cur.getDate() + i); if (days.includes(x.getDay())) rows.push({ starts_at: x.toISOString(), minutes: mins }); } }
+    try { await call({ action: 'sess_create', class_name: cls, rows }); await load(); } catch (e) { out.textContent = e.message; }
+  }
+  async function rowAct(e) {
+    const b = e.target.closest('button[data-a]'); if (!b) return; const id = Number(b.dataset.id), x = ov.sessions.find(s => s.id === id), a = b.dataset.a;
+    try {
+      if (a === 'att') { openAtt = openAtt === id ? null : id; render(); return; }
+      if (a === 'cancel') await call({ action: 'sess_update', id, patch: { status: 'cancelled' } });
+      else if (a === 'restore') await call({ action: 'sess_update', id, patch: { status: 'scheduled' } });
+      else if (a === 'free') await call({ action: 'sess_update', id, patch: { counts: !x.counts } });
+      else if (a === 'move') { const v = prompt('New date and time (YYYY-MM-DD HH:MM):', toLocal(x.starts_at)); if (!v) return; const t = new Date(v.replace(' ', 'T')); if (isNaN(t)) { alert('Invalid date.'); return; } await call({ action: 'sess_update', id, patch: { starts_at: t.toISOString(), status: x.status === 'cancelled' || x.status === 'postponed' ? 'scheduled' : x.status } }); }
+      else if (a === 'del') { if (!confirm('Delete this session and its attendance?')) return; await call({ action: 'sess_delete', id }); }
+      await load();
+    } catch (er) { alert(er.message); }
+  }
+  async function load() {
+    try { ov = await call({ action: 'sess_overview', class_name: cls, tz_offset: new Date().getTimezoneOffset() }); render(); }
+    catch (e) { $('sess-root').innerHTML = '<span class="text-red-600">' + esc(e.message) + '</span>'; }
+  }
+  window.sessOpen = function () { ov = null; openAtt = null; render(); if (cls) load(); };
+})();
+
+// ---------- Student: my attendance ----------
+(function(){
+  const FN = SUPABASE_URL + '/functions/v1/reminders';
+  const esc = v => escapeHtml(String(v == null ? '' : v));
+  const LAB = { present: ['Present', 'bg-emerald-100 text-emerald-800'], late: ['Late', 'bg-amber-100 text-amber-800'], absent: ['Absent', 'bg-red-100 text-red-800'], excused: ['Excused', 'bg-sky-100 text-sky-800'] };
+  let data = null, key = '', busy = false;
+  async function fetchMine(force) {
+    const st = typeof getSubmittingStudent === 'function' ? getSubmittingStudent() : null;
+    const area = document.getElementById('student-content-area'); if (!area || area.offsetParent === null || !st || !st.id || !currentStudentClass) return;
+    const k = st.id + '|' + currentStudentClass; if (!force && k === key && data) return; if (busy) return; busy = true;
+    try {
+      const r = await fetch(FN, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + SUPABASE_ANON_KEY }, body: JSON.stringify({ action: 'my_sessions', class_name: currentStudentClass, student_id: String(st.id), tz_offset: new Date().getTimezoneOffset() }) });
+      const j = await r.json().catch(() => ({})); key = k; data = r.ok ? j : { allowed: false };
+    } catch (e) { data = { allowed: false }; key = k; } finally { busy = false; }
+    const tab = document.getElementById('tab-student-sessions'); if (tab) tab.classList.toggle('hidden', !(data && data.allowed));
+    if (currentStudentTabId === 'sessions') render();
+  }
+  function render() {
+    const box = document.getElementById('student-sessions-container'); if (!box) return;
+    if (!data || !data.allowed) { box.innerHTML = '<div class="text-center text-gray-500 py-8">Not available.</div>'; return; }
+    const sm = data.summary, now = Date.now(), pct = sm.left != null && sm.total ? Math.round(sm.used / sm.total * 100) : 0;
+    const mine = data.sessions.filter(x => x.mine), c = k => mine.filter(x => x.mine === k).length;
+    const head = `<div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+      ${sm.left != null ? `<div class="text-sm text-gray-500">${sm.plan_type === 'monthly' ? 'Sessions left this month' : 'Sessions left'}</div><div class="text-4xl font-bold text-indigo-700">${sm.left}<span class="text-base font-medium text-gray-400"> / ${sm.total}</span></div>
+        <div class="h-2 bg-gray-100 rounded-full mt-3 overflow-hidden"><div class="h-2 bg-indigo-500" style="width:${pct}%"></div></div>` : `<div class="text-sm text-gray-500">Sessions done</div><div class="text-4xl font-bold text-indigo-700">${sm.held_all}</div>`}
+      <div class="flex flex-wrap gap-2 mt-4 text-xs">${Object.entries(LAB).map(([k, v]) => `<span class="px-2.5 py-1 rounded-full ${v[1]}">${v[0]}: <b>${c(k)}</b></span>`).join('')}</div>${data.plan.note ? `<p class="text-sm text-gray-600 mt-3">${esc(data.plan.note)}</p>` : ''}</div>`;
+    const up = data.sessions.filter(x => x.status === 'scheduled' && new Date(x.starts_at) >= now).slice(0, 3);
+    const past = data.sessions.filter(x => !up.includes(x) && (x.status !== 'scheduled' || new Date(x.starts_at) < now)).reverse().slice(0, 30);
+    const item = x => { const d = new Date(x.starts_at); const chip = x.status === 'cancelled' ? ['Cancelled', 'bg-gray-200 text-gray-500'] : x.mine ? LAB[x.mine] : x.status === 'scheduled' ? ['Upcoming', 'bg-indigo-100 text-indigo-800'] : x.status === 'held' ? ['Held', 'bg-gray-100 text-gray-600'] : ['Postponed', 'bg-amber-100 text-amber-800'];
+      return `<li class="flex items-center justify-between px-4 py-3 bg-white"><span><b>${esc(d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' }))}</b> <span class="text-gray-500 text-sm">${esc(d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))}</span></span><span class="text-xs px-2.5 py-1 rounded-full ${chip[1]}">${chip[0]}</span></li>`; };
+    box.innerHTML = head + (up.length ? `<h3 class="font-semibold text-gray-800 px-1">Next sessions</h3><ul class="divide-y border rounded-xl overflow-hidden">${up.map(item).join('')}</ul>` : '') +
+      (past.length ? `<h3 class="font-semibold text-gray-800 px-1">History</h3><ul class="divide-y border rounded-xl overflow-hidden">${past.map(item).join('')}</ul>` : '');
+  }
+  window.mySessOpened = async function () { await fetchMine(true); render(); };
+  setInterval(() => fetchMine(false), 3000);
+  setInterval(() => fetchMine(true), 300000);
 })();
 </script>
 </body>
