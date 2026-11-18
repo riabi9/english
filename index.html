@@ -201,6 +201,7 @@
                 <button id="tab-admin-lessons" onclick="window.switchAdminTab('lessons')" class="tab-inactive pb-3 px-2 text-sm font-medium">Publish Lessons</button>
                 <button id="tab-admin-homework" onclick="window.switchAdminTab('homework')" class="tab-inactive pb-3 px-2 text-sm font-medium whitespace-nowrap">Homework &amp; Exercises</button>
                 <button id="tab-admin-board" onclick="window.switchAdminTab('board')" class="tab-inactive pb-3 px-2 text-sm font-medium whitespace-nowrap">Live Board</button>
+                <button id="tab-admin-notify" onclick="window.switchAdminTab('notify')" class="tab-inactive pb-3 px-2 text-sm font-medium whitespace-nowrap">&#128276; Notifications</button>
                 <button id="tab-admin-results" onclick="window.switchAdminTab('results')" class="tab-inactive pb-3 px-2 text-sm font-medium">Results</button>
             </div>
 
@@ -461,6 +462,8 @@
             </div>
 
             <!-- Admin: Results Tab -->
+            <div id="admin-notify-container" class="hidden fade-in"><div id="notify-root" class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 text-sm text-gray-500">Loading...</div></div>
+
             <div id="admin-results-container" class="hidden fade-in">
                 <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
                     <div class="flex flex-wrap items-end gap-3 mb-3">
@@ -614,6 +617,7 @@
 
         window.verifyAdminPassword = function() {
             if (document.getElementById('admin-password-input').value === '19990') {
+                window.__adminPw = document.getElementById('admin-password-input').value;
                 window.closeAdminLogin();
                 window.setRole('admin');
             } else {
@@ -656,12 +660,13 @@
         window.switchAdminTab = function(tabId) {
             let hwSub = null;
             if (tabId === 'exercises') { tabId = 'homework'; hwSub = 'exercises'; }
-            const tabs = ['classes', 'lessons', 'homework', 'board', 'results'];
+            const tabs = ['classes', 'lessons', 'homework', 'board', 'notify', 'results'];
             tabs.forEach(t => {
                 document.getElementById(`tab-admin-${t}`).className = (t === tabId) ? "tab-active pb-3 px-2 text-sm font-medium" : "tab-inactive pb-3 px-2 text-sm font-medium";
                 if(t === tabId) document.getElementById(`admin-${t}-container`).classList.remove('hidden');
                 else document.getElementById(`admin-${t}-container`).classList.add('hidden');
             });
+            if (tabId === 'notify' && window.notifyOpen) window.notifyOpen();
             if (tabId === 'results') window.loadResults(false);
             if (tabId === 'board') window.adminBoardOpen();
             if (tabId === 'homework') window.setHomeworkSub(hwSub || window.currentHwSub || 'assign');
@@ -2959,6 +2964,7 @@ function renderAdminHomework() {
             </div>
             <div class="flex gap-4 flex-shrink-0">
                 <button onclick="window.adminToggleHomeworkHidden('${h.id}')" class="text-amber-600 text-sm hover:underline">${h.is_hidden ? 'Show' : 'Hide'}</button>
+                <button onclick="window.openReminders('${h.id}')" class="text-emerald-600 text-sm hover:underline">&#128276; Reminders</button>
                 <button onclick="window.adminEditHomework('${h.id}')" class="text-indigo-600 text-sm hover:underline">Edit</button>
                 <button onclick="window.adminDeleteHomework('${h.id}')" class="text-red-500 text-sm hover:underline">Delete</button>
             </div>
@@ -6210,5 +6216,223 @@ function renderLiveEx() {
 }
 
     </script>
+
+<script>
+(function(){
+  const FN = SUPABASE_URL + '/functions/v1/reminders';
+  const DAYS = [[1,'Mon'],[2,'Tue'],[3,'Wed'],[4,'Thu'],[5,'Fri'],[6,'Sat'],[0,'Sun']];
+  const KINDS = { homework: ['Homework', '\u{1F4DA}'], exercise: ['Exercise', '✏️'], lesson: ['Lesson / article / podcast', '\u{1F3A7}'], custom: ['Custom message / link', '\u{1F4E3}'] };
+  let st = null, editing = null;
+  const $ = id => document.getElementById(id), esc = v => escapeHtml(String(v == null ? '' : v));
+  async function call(body) {
+    if (!window.__adminPw) { const p = prompt('Admin password:'); if (!p) throw new Error('Password needed.'); window.__adminPw = p; }
+    const r = await fetch(FN, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + SUPABASE_ANON_KEY }, body: JSON.stringify({ ...body, password: window.__adminPw }) });
+    let j = {}; try { j = await r.json(); } catch (e) {}
+    if (r.status === 401) window.__adminPw = '';
+    if (!r.ok) throw new Error(j.error || ('Server error ' + r.status + (r.status === 404 ? ' (function "reminders" is not deployed yet)' : '')));
+    return j;
+  }
+  const pad = n => String(n).padStart(2, '0');
+  const toLocal = d => { const x = new Date(d); return x.getFullYear() + '-' + pad(x.getMonth() + 1) + '-' + pad(x.getDate()) + 'T' + pad(x.getHours()) + ':' + pad(x.getMinutes()); };
+  const lists = () => ({ homework: adminHomework || [], exercise: typeof adminExercises !== 'undefined' ? adminExercises : [], lesson: typeof adminLessons !== 'undefined' ? adminLessons : [] });
+  function itemTitle(r) { if (r.kind === 'custom') return r.title || '(message)'; const it = (lists()[r.kind] || []).find(x => String(x.id) === String(r.item_id || r.homework_id)); return it ? it.title : '(deleted item)'; }
+  function when(r) {
+    const d = new Date(r.send_at), t = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const rd = Array.isArray(r.repeat_days) ? r.repeat_days : [];
+    if (rd.length) return 'Every ' + DAYS.filter(x => rd.includes(x[0])).map(x => x[1]).join(', ') + ' at ' + t + (r.repeat_until ? ' until ' + new Date(r.repeat_until).toLocaleDateString() : '') + (r.sent_at ? '' : ' • next ' + d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' }));
+    return d.toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+  }
+  function itemOptions(kind, cls, sel) {
+    let arr = lists()[kind] || []; if (cls && cls !== '*') { const f = arr.filter(x => x.target_class === cls); arr = f; }
+    return arr.length ? arr.map(x => `<option value="${esc(x.id)}" ${String(x.id) === String(sel) ? 'selected' : ''}>${esc(x.title)}</option>`).join('') : '<option value="">(none for this class)</option>';
+  }
+  function render(prefill) {
+    const classes = (typeof globalClasses !== 'undefined' ? globalClasses : []).map(c => c.name);
+    const p = prefill || {}; const kind = p.kind || 'homework', cls = p.class_name != null ? p.class_name : (classes[0] || '*');
+    const w = p.send_at ? toLocal(p.send_at) : (() => { const t = new Date(); t.setDate(t.getDate() + 1); t.setHours(18, 0, 0, 0); return toLocal(t); })();
+    const rd = (p.repeat_days || []).map(Number);
+    const rows = st.reminders.map(r => `<li class="border rounded-lg p-3 flex flex-wrap justify-between gap-3 items-start ${r.sent_at ? 'bg-gray-50' : 'bg-white'}">
+        <div class="text-sm min-w-0"><b>${KINDS[r.kind || 'homework'][1]} ${esc(itemTitle(r))}</b> <span class="text-gray-500">&bull; ${r.class_name === '*' ? 'All classes' : esc(r.class_name)}</span><br>
+        <span class="text-gray-600">${esc(when(r))}</span><br>
+        ${r.sent_at ? '<span class="text-emerald-700">&#10003; Finished</span>' : '<span class="text-amber-700">Scheduled</span>'}${r.last_sent_at ? ` <span class="text-gray-500">&bull; last sent to ${r.sent_count} student(s), ${r.skipped_count} skipped</span>` : ''}${r.last_error ? ` <span class="text-red-600">${esc(r.last_error)}</span>` : ''}</div>
+        <div class="flex gap-3 text-sm flex-shrink-0">
+          <button data-a="edit" data-id="${r.id}" class="text-indigo-600 hover:underline">Edit</button>
+          <button data-a="test" data-id="${r.id}" class="text-gray-600 hover:underline">Test</button>
+          <button data-a="now" data-id="${r.id}" class="text-emerald-700 hover:underline">Send now</button>
+          <button data-a="del" data-id="${r.id}" class="text-red-500 hover:underline">Delete</button></div></li>`).join('');
+    const stats = Object.entries(st.classes).map(([c, v]) => `<span class="inline-block mr-3">${esc(c)}: <b>${v.devices}/${v.students}</b></span>`).join('') || 'No students yet.';
+    $('notify-root').innerHTML = `
+      <h3 class="text-lg font-bold text-gray-900 mb-1">&#128276; Push notifications to students</h3>
+      <p class="text-gray-500 mb-3">Only you (admin) can schedule these. Students receive them on the devices where they allowed notifications.</p>
+      ${st.push_ready ? '' : '<div class="mb-3 bg-amber-50 border border-amber-300 text-amber-800 rounded-lg p-3">Notifications are not set up yet: add the VAPID secrets to the Supabase function (see the setup steps).</div>'}
+      <div class="text-xs text-gray-500 mb-4">Students with notifications on: ${stats}</div>
+      <h4 class="font-semibold text-gray-800 mb-2">Scheduled</h4>
+      <ul id="n-list" class="space-y-2 mb-6">${rows || '<li class="text-gray-500">Nothing scheduled yet.</li>'}</ul>
+      <div class="border rounded-lg p-4 bg-indigo-50/40 space-y-3">
+        <h4 class="font-semibold text-gray-800">${editing ? 'Edit notification' : 'New notification'}</h4>
+        <div class="grid sm:grid-cols-2 gap-3">
+          <label class="block"><span class="text-xs font-medium text-gray-600">Class</span>
+            <select id="n-class" class="border rounded px-2 py-1.5 w-full bg-white"><option value="*" ${cls === '*' ? 'selected' : ''}>All classes</option>${classes.map(c => `<option ${c === cls ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
+          <label class="block"><span class="text-xs font-medium text-gray-600">What to push</span>
+            <select id="n-kind" class="border rounded px-2 py-1.5 w-full bg-white">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}" ${k === kind ? 'selected' : ''}>${v[1]} ${v[0]}</option>`).join('')}</select></label>
+        </div>
+        <label id="n-item-wrap" class="block"><span class="text-xs font-medium text-gray-600">Which one</span><select id="n-item" class="border rounded px-2 py-1.5 w-full bg-white"></select></label>
+        <div id="n-ex-wrap" class="hidden"><span class="text-xs font-medium text-gray-600">Which exercises of this homework</span><div id="n-ex" class="mt-1"></div></div>
+        <label class="block"><span class="text-xs font-medium text-gray-600">Notification title <span class="text-gray-400">(optional; {name} {title} {due} are filled in)</span></span><input id="n-subj" class="border rounded px-2 py-1.5 w-full" value="${esc(p.kind === 'custom' ? p.title : p.subject)}"></label>
+        <label class="block"><span class="text-xs font-medium text-gray-600">Message <span class="text-gray-400">(optional)</span></span><textarea id="n-msg" rows="2" class="border rounded px-2 py-1.5 w-full">${esc(p.message)}</textarea></label>
+        <label id="n-link-wrap" class="block"><span class="text-xs font-medium text-gray-600">Link to open <span class="text-gray-400">(optional, e.g. a podcast or article URL; default: the portal)</span></span><input id="n-link" class="border rounded px-2 py-1.5 w-full" value="${esc(p.link_url)}" placeholder="https://"></label>
+        <div class="grid sm:grid-cols-2 gap-3">
+          <label class="block"><span class="text-xs font-medium text-gray-600">Day &amp; time (first / only send)</span><input id="n-when" type="datetime-local" class="border rounded px-2 py-1.5 w-full" value="${esc(w)}"></label>
+          <label class="block"><span class="text-xs font-medium text-gray-600">Stop repeating after (optional)</span><input id="n-until" type="date" class="border rounded px-2 py-1.5 w-full" value="${p.repeat_until ? esc(toLocal(p.repeat_until).slice(0, 10)) : ''}"></label>
+        </div>
+        <div><span class="text-xs font-medium text-gray-600">Repeat every week on (leave empty to send once)</span>
+          <div class="flex flex-wrap gap-3 mt-1">${DAYS.map(([n, l]) => `<label><input type="checkbox" class="n-day" value="${n}" ${rd.includes(n) ? 'checked' : ''}> ${l}</label>`).join('')}</div></div>
+        <label id="n-pend-wrap" class="block"><input id="n-pend" type="checkbox" ${p.only_pending === false ? '' : 'checked'}> Only students who have not finished it</label>
+        <div><button id="n-save" class="bg-indigo-600 text-white px-4 py-1.5 rounded-lg">${editing ? 'Save changes' : 'Schedule notification'}</button>
+          ${editing ? '<button id="n-cancel" class="ml-2 px-3 py-1.5 border rounded-lg bg-white">Cancel</button>' : ''}<span id="n-out" class="ml-2 text-sm"></span></div>
+      </div>`;
+    const sync = () => {
+      const k = $('n-kind').value, c = $('n-class').value;
+      $('n-item-wrap').classList.toggle('hidden', k === 'custom');
+      $('n-pend-wrap').classList.toggle('hidden', k !== 'homework' && k !== 'exercise');
+      $('n-link-wrap').classList.toggle('hidden', false);
+      if (k !== 'custom') $('n-item').innerHTML = itemOptions(k, c, p.item_id || p.homework_id);
+      showEx();
+    };
+    const showEx = () => {
+      const k = $('n-kind').value; const wrap = $('n-ex-wrap');
+      if (k !== 'homework') { wrap.classList.add('hidden'); return; }
+      const hw = (adminHomework || []).find(x => String(x.id) === String($('n-item').value)); const ids = hw ? (hw.exercise_ids || []).map(String) : [];
+      if (!ids.length) { wrap.classList.add('hidden'); return; }
+      const chosen = (p.exercise_ids || []).map(String); const exs = typeof adminExercises !== 'undefined' ? adminExercises : [];
+      $('n-ex').innerHTML = ids.map(i => { const e = exs.find(x => String(x.id) === i); return `<label class="block"><input type="checkbox" class="n-exc" value="${esc(i)}" ${!chosen.length || chosen.includes(i) ? 'checked' : ''}> ${esc(e ? e.title : 'Exercise ' + i)}</label>`; }).join('');
+      wrap.classList.remove('hidden');
+    };
+    $('n-kind').onchange = () => { p.item_id = ''; p.homework_id = ''; sync(); };
+    $('n-class').onchange = () => { p.item_id = ''; p.homework_id = ''; sync(); };
+    $('n-item').onchange = () => { p.exercise_ids = []; showEx(); };
+    sync();
+    $('n-save').onclick = save;
+    if ($('n-cancel')) $('n-cancel').onclick = () => { editing = null; render(); };
+    $('n-list').onclick = rowAction;
+  }
+  async function save() {
+    const out = $('n-out'); out.className = 'ml-2 text-sm text-red-600';
+    const kind = $('n-kind').value, item = kind === 'custom' ? '' : $('n-item').value, subj = $('n-subj').value.trim(), msg = $('n-msg').value.trim();
+    if (kind !== 'custom' && !item) { out.textContent = 'Choose which ' + KINDS[kind][0].toLowerCase() + ' to push.'; return; }
+    if (kind === 'custom' && !subj && !msg) { out.textContent = 'Write a title or a message.'; return; }
+    if (!$('n-when').value) { out.textContent = 'Pick a day and time.'; return; }
+    const exs = kind === 'homework' ? [...document.querySelectorAll('.n-exc')] : []; const sel = exs.filter(x => x.checked).map(x => x.value);
+    if (exs.length && !sel.length) { out.textContent = 'Tick at least one exercise.'; return; }
+    const until = $('n-until').value; 
+    try {
+      await call({ action: 'save_reminder', id: editing ? editing.id : undefined, kind, item_id: item, class_name: $('n-class').value, send_at: new Date($('n-when').value).toISOString(),
+        subject: kind === 'custom' ? '' : subj, title: kind === 'custom' ? subj : '', message: msg, link_url: $('n-link').value.trim(), exercise_ids: sel, only_pending: $('n-pend').checked,
+        repeat_days: [...document.querySelectorAll('.n-day')].filter(x => x.checked).map(x => Number(x.value)), repeat_until: until ? new Date(until + 'T23:59').toISOString() : null, tz_offset: new Date().getTimezoneOffset() });
+      editing = null; await load();
+    } catch (e) { out.textContent = e.message; }
+  }
+  async function rowAction(e) {
+    const b = e.target.closest('button[data-a]'); if (!b) return; const id = b.dataset.id, a = b.dataset.a, r = st.reminders.find(x => String(x.id) === id);
+    try {
+      if (a === 'edit') { editing = r; render(r); $('notify-root').scrollIntoView({ block: 'end' }); return; }
+      if (a === 'del') { if (!confirm('Delete this notification?')) return; await call({ action: 'delete_reminder', id }); }
+      else { if (a === 'now' && !confirm('Send it to the students now?')) return; b.textContent = '...'; const x = await call({ action: 'send_now', id, test: a === 'test' }); alert((a === 'test' ? 'Test sent to one student: ' : 'Sent: ') + x.sent + ' student(s), ' + x.skipped + ' skipped' + (x.failed ? ', ' + x.failed + ' failed: ' + (x.errors || []).join('; ') : '') + (x.errors && !x.failed && x.errors.length ? ' ' + x.errors.join('; ') : '')); }
+      await load();
+    } catch (er) { alert(er.message); }
+  }
+  async function load(prefill) {
+    try { st = await call({ action: 'list_all' }); render(prefill); }
+    catch (e) { $('notify-root').innerHTML = '<span class="text-red-600">' + esc(e.message) + '</span>'; }
+  }
+  window.notifyOpen = function () { editing = null; load(); };
+  window.openReminders = async function (hid) {   // "Reminders" button on a homework
+    window.switchAdminTab('notify'); editing = null;
+    const hw = (adminHomework || []).find(x => String(x.id) === String(hid));
+    try { st = await call({ action: 'list_all' }); render(hw ? { kind: 'homework', item_id: hw.id, class_name: hw.target_class } : null); } catch (e) { $('notify-root').innerHTML = '<span class="text-red-600">' + esc(e.message) + '</span>'; }
+  };
+})();
+</script>
+
+<script>
+(function(){
+  const VAPID = "BFE790pQt3etKGiEkXxq5rRhuqtXadpENsRxDVao2DSSvDXVZbQMSjsOyKbWPAHCfsvZHj1yY3lW9lt3W7YZLfU";
+  const FN = SUPABASE_URL + '/functions/v1/reminders';
+  const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  const b64 = k => { const p = '='.repeat((4 - k.length % 4) % 4), r = atob((k + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(r, c => c.charCodeAt(0)); };
+  async function api(body) {
+    const r = await fetch(FN, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + SUPABASE_ANON_KEY }, body: JSON.stringify(body) });
+    const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'Server error ' + r.status); return j;
+  }
+  async function currentSub() { try { const reg = await navigator.serviceWorker.getRegistration(); return reg ? await reg.pushManager.getSubscription() : null; } catch (e) { return null; } }
+  function msg(t, bad) { const m = document.getElementById('push-msg'); if (m) { m.textContent = t; m.className = 'block text-xs mt-1 ' + (bad ? 'text-red-600' : 'text-gray-600'); } }
+  async function render() {
+    const box = document.getElementById('push-box'); if (!box) return;
+    if (!supported) { box.innerHTML = '<p class="text-xs text-gray-500">Reminders need a browser with notifications (on iPhone: add this page to the Home Screen first).</p>'; return; }
+    const sub = await currentSub(), on = sub && Notification.permission === 'granted' && localStorage.getItem('portal_push_on') === '1';
+    box.innerHTML = `<div class="flex flex-wrap items-center gap-3 rounded-xl border border-indigo-200 bg-indigo-50 p-3">
+      <span class="text-sm text-indigo-900">&#128276; ${on ? 'Homework reminders are <b>on</b> on this device.' : 'Get a notification when homework is due.'}</span>
+      <button id="push-btn" class="ml-auto text-sm px-3 py-1.5 rounded-lg ${on ? 'bg-white border text-gray-700' : 'bg-indigo-600 text-white'}">${on ? 'Turn off' : 'Turn on homework reminders'}</button></div><span id="push-msg" class="block text-xs mt-1"></span>`;
+    document.getElementById('push-btn').onclick = on ? turnOff : turnOn;
+  }
+  async function turnOn() {
+    const st = typeof getSubmittingStudent === 'function' ? getSubmittingStudent() : null;
+    if (!st || !st.id) { msg('Choose your name from the list first, then turn reminders on.', true); return; }
+    try {
+      if (Notification.permission === 'denied') { msg('Notifications are blocked in your browser settings for this site. Allow them, then try again.', true); return; }
+      const perm = await Notification.requestPermission(); if (perm !== 'granted') { msg('Permission was not given.', true); return; }
+      const reg = await navigator.serviceWorker.register('sw.js'); await navigator.serviceWorker.ready;
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64(VAPID) });
+      await api({ action: 'subscribe', student_id: String(st.id), class_name: currentStudentClass, subscription: sub.toJSON() });
+      localStorage.setItem('portal_push_on', '1'); localStorage.removeItem('portal_push_ask'); localStorage.setItem('portal_push_who', st.id + '|' + currentStudentClass); render(); setTimeout(() => msg('Done! You will get reminders on this device.'), 50);
+    } catch (e) { msg('Could not turn on: ' + e.message, true); }
+  }
+  async function turnOff() {
+    try { const sub = await currentSub(); if (sub) { await api({ action: 'unsubscribe', endpoint: sub.endpoint }).catch(() => {}); await sub.unsubscribe(); } } catch (e) {}
+    localStorage.removeItem('portal_push_on'); localStorage.setItem('portal_push_ask', 'never'); render();
+  }
+  const orig = window.renderStudentHomework;
+  window.renderStudentHomework = function () {
+    orig.apply(this, arguments);
+    const box = document.getElementById('student-homework-container');
+    if (box && !box.querySelector('#push-box') && box.children.length) { box.insertAdjacentHTML('afterbegin', '<div id="push-box"></div>'); render(); }
+  };
+  document.addEventListener('change', e => { if (e.target && e.target.id === 'student-roster-select') { const m = document.getElementById('push-msg'); if (m) m.textContent = ''; } });
+  window.__pushRender = render;
+  // Automatic ask: once a student is identified, show a friendly prompt (a tap is required by browsers) or subscribe silently if already allowed.
+  async function subscribeNow(st) {
+    const reg = await navigator.serviceWorker.register('sw.js'); await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64(VAPID) });
+    await api({ action: 'subscribe', student_id: String(st.id), class_name: currentStudentClass, subscription: sub.toJSON() });
+    localStorage.setItem('portal_push_on', '1'); localStorage.removeItem('portal_push_ask');
+  }
+  let busy = false;
+  async function check() {
+    if (busy || !supported) return;
+    try {
+      const area = document.getElementById('student-content-area'); if (!area || area.offsetParent === null) return;
+      const st = typeof getSubmittingStudent === 'function' ? getSubmittingStudent() : null; if (!st || !st.id || !currentStudentClass) return;
+      if (document.getElementById('push-ask')) return;
+      if (Notification.permission === 'denied') return;
+      const key = st.id + '|' + currentStudentClass;
+      if (Notification.permission === 'granted') { if (localStorage.getItem('portal_push_on') === '1' && localStorage.getItem('portal_push_who') === key) return; if (localStorage.getItem('portal_push_ask') === 'never') return; busy = true; await subscribeNow(st); localStorage.setItem('portal_push_who', key); return; }
+      const a = localStorage.getItem('portal_push_ask'); if (a === 'never' || (a && Date.now() - Number(a) < 3 * 86400000)) return;
+      const d = document.createElement('div'); d.id = 'push-ask'; d.className = 'fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4';
+      d.innerHTML = `<div class="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6 text-center"><div class="text-4xl mb-2">&#128276;</div><h3 class="text-lg font-bold mb-1">Turn on notifications?</h3><p class="text-sm text-gray-600 mb-4">Get a reminder for your homework, new exercises and lessons, even when this page is closed.</p>
+        <button id="push-ask-yes" class="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-medium mb-2">Yes, turn on</button><button id="push-ask-no" class="w-full text-gray-500 py-2 text-sm">Not now</button></div>`;
+      document.body.appendChild(d);
+      document.getElementById('push-ask-no').onclick = () => { localStorage.setItem('portal_push_ask', String(Date.now())); d.remove(); };
+      document.getElementById('push-ask-yes').onclick = async () => {
+        d.remove(); const perm = await Notification.requestPermission();
+        if (perm !== 'granted') { localStorage.setItem('portal_push_ask', String(Date.now())); return; }
+        try { busy = true; await subscribeNow(st); localStorage.setItem('portal_push_who', key); render(); } catch (e) { alert('Could not turn on notifications: ' + e.message); } finally { busy = false; }
+      };
+    } catch (e) { /* ignore */ } finally { busy = false; }
+  }
+  setInterval(check, 2500);
+})();
+</script>
 </body>
 </html>
