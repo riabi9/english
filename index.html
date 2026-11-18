@@ -145,12 +145,14 @@
                 <div class="flex space-x-8 mb-6 border-b border-gray-200 overflow-x-auto">
                     <button id="tab-student-lessons" onclick="window.switchStudentTab('lessons')" class="tab-active pb-3 text-sm font-medium whitespace-nowrap">Lessons</button>
                     <button id="tab-student-homework" onclick="window.switchStudentTab('homework')" class="tab-inactive pb-3 text-sm font-medium whitespace-nowrap">Homework <span id="hw-count-dot" class="hidden ml-1 text-xs font-bold bg-red-500 text-white rounded-full px-1.5 py-0.5"></span></button>
+                    <button id="tab-student-messages" onclick="window.switchStudentTab('messages')" class="tab-inactive pb-3 text-sm font-medium whitespace-nowrap">Messages <span id="msg-count-dot" class="hidden ml-1 text-xs font-bold bg-red-500 text-white rounded-full px-1.5 py-0.5"></span></button>
                     <button id="tab-student-board" onclick="window.switchStudentTab('board')" class="tab-inactive pb-3 text-sm font-medium whitespace-nowrap">Live Board <span id="board-live-dot" class="hidden bd-pulse inline-block w-2 h-2 rounded-full bg-red-500 align-middle ml-1"></span></button>
                 </div>
 
                 <div id="student-lessons-container" class="grid gap-6 md:grid-cols-2 block fade-in"></div>
                 <div id="student-exercises-container" class="hidden fade-in space-y-4"></div>
                 <div id="student-homework-container" class="hidden fade-in space-y-5"></div>
+                <div id="student-messages-container" class="hidden fade-in space-y-4"></div>
                 <div id="student-board-container" class="hidden fade-in">
                     <div id="student-live-ex-slot" class="hidden mb-4">
                         <div class="flex items-center gap-2 px-4 py-2 mb-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800"><span class="bd-pulse inline-block w-2 h-2 rounded-full bg-red-500"></span><span id="live-ex-banner-text" class="font-medium"></span></div>
@@ -644,7 +646,8 @@
         let currentStudentTabId = 'lessons';
         let studentReturnTab = 'homework';
         window.switchStudentTab = function(tabId) {
-            const tabs = ['lessons', 'homework', 'board'];
+            const tabs = ['lessons', 'homework', 'messages', 'board'];
+            if (tabId === 'messages' && window.msgOpened) setTimeout(window.msgOpened, 0);
             if (!tabs.includes(tabId)) tabId = 'homework';
             currentStudentTabId = tabId;
             tabs.forEach(t => {
@@ -954,7 +957,7 @@ window.adminDeleteLesson = async function(id) {
             if (window.liveExActive && !liveOpening) { alert('Your teacher is running a live exercise. Please finish it first (Live Board tab).'); window.switchStudentTab('board'); return; }
             if (!liveOpening) {
                 studentReturnTab = currentStudentTabId;
-                ['lessons', 'homework', 'board'].forEach(t => document.getElementById(`student-${t}-container`).classList.add('hidden'));
+                ['lessons', 'homework', 'messages', 'board'].forEach(t => document.getElementById(`student-${t}-container`).classList.add('hidden'));
             }
             activeExerciseData = ex;
             studentAnswers = {};
@@ -2964,7 +2967,7 @@ function renderAdminHomework() {
             </div>
             <div class="flex gap-4 flex-shrink-0">
                 <button onclick="window.adminToggleHomeworkHidden('${h.id}')" class="text-amber-600 text-sm hover:underline">${h.is_hidden ? 'Show' : 'Hide'}</button>
-                <button onclick="window.openReminders('${h.id}')" class="text-emerald-600 text-sm hover:underline">&#128276; Reminders</button>
+                <button onclick="window.openReminders('${h.id}')" class="text-emerald-600 text-sm hover:underline">&#128276; Notify</button>
                 <button onclick="window.adminEditHomework('${h.id}')" class="text-indigo-600 text-sm hover:underline">Edit</button>
                 <button onclick="window.adminDeleteHomework('${h.id}')" class="text-red-500 text-sm hover:underline">Delete</button>
             </div>
@@ -6221,7 +6224,7 @@ function renderLiveEx() {
 (function(){
   const FN = SUPABASE_URL + '/functions/v1/reminders';
   const DAYS = [[1,'Mon'],[2,'Tue'],[3,'Wed'],[4,'Thu'],[5,'Fri'],[6,'Sat'],[0,'Sun']];
-  const KINDS = { homework: ['Homework', '\u{1F4DA}'], exercise: ['Exercise', '✏️'], lesson: ['Lesson / article / podcast', '\u{1F3A7}'], custom: ['Custom message / link', '\u{1F4E3}'] };
+  const KINDS = { homework: ['Homework', '\u{1F4DA}'], exercise: ['Exercise', '✏️'], lesson: ['Lesson / article / podcast', '\u{1F3A7}'], custom: ['Message / podcast / article link', '\u{1F4E3}'] };
   let st = null, editing = null;
   const $ = id => document.getElementById(id), esc = v => escapeHtml(String(v == null ? '' : v));
   async function call(body) {
@@ -6432,6 +6435,99 @@ function renderLiveEx() {
     } catch (e) { /* ignore */ } finally { busy = false; }
   }
   setInterval(check, 2500);
+})();
+</script>
+
+<script>
+// Opens the item a notification pointed to (?open=exercise:ID | homework:ID | lesson:ID) once the student is in their class.
+(function(){
+  const save = v => { try { if (v) sessionStorage.setItem('portal_open', v); } catch (e) {} };
+  try { const u = new URL(location.href), o = u.searchParams.get('open'); if (o) { save(o); u.searchParams.delete('open'); history.replaceState(null, '', u.pathname + (u.search || '') + u.hash); } } catch (e) {}
+  if ('serviceWorker' in navigator) navigator.serviceWorker.addEventListener('message', e => { if (e.data && e.data.open) { save(e.data.open); tries = 0; } });
+  let tries = 0;
+  setInterval(() => {
+    let v = null; try { v = sessionStorage.getItem('portal_open'); } catch (e) {}
+    if (!v) return;
+    if (++tries > 240) { try { sessionStorage.removeItem('portal_open'); } catch (e) {} tries = 0; return; }
+    const area = document.getElementById('student-content-area'); if (!area || area.offsetParent === null || !currentStudentClass) return;
+    const [kind, ...rest] = v.split(':'), id = rest.join(':'); let done = false;
+    try {
+      if (kind === 'exercise') { if (globalExercises.some(x => x.id == id)) { window.openExercise(id); done = true; } }
+      else if (kind === 'lesson') { if (globalLessons.some(x => x.id == id)) { window.switchStudentTab('lessons'); window.readLesson(id); done = true; } }
+      else if (kind === 'homework') { if (typeof globalHomework !== 'undefined' && globalHomework.length) { window.switchStudentTab('homework'); done = true; } }
+      else done = true;
+    } catch (e) { done = true; }
+    if (done) { try { sessionStorage.removeItem('portal_open'); } catch (e) {} tries = 0; }
+  }, 500);
+})();
+</script>
+
+<script>
+// Student "Messages" tab: every pushed notification is kept here, with the right button and a YouTube thumbnail when there is one.
+(function(){
+  let msgs = [], cls = '';
+  const esc = v => escapeHtml(String(v == null ? '' : v));
+  const seenKey = () => 'portal_msgs_seen_' + currentStudentClass;
+  const getSeen = () => { try { return Number(localStorage.getItem(seenKey()) || 0); } catch (e) { return 0; } };
+  function yt(text) {
+    const m = String(text || '').match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?(?:[^"'\s]*&)?v=|embed\/|shorts\/|v\/)|youtube-nocookie\.com\/embed\/)([A-Za-z0-9_-]{11})/);
+    return m ? m[1] : null;
+  }
+  function thumbFor(m) {
+    let id = yt(m.link_url);
+    if (!id && m.kind === 'lesson') { const l = (typeof globalLessons !== 'undefined' ? globalLessons : []).find(x => x.id == m.item_id); if (l) id = yt(l.content); }
+    return id ? 'https://img.youtube.com/vi/' + id + '/hqdefault.jpg' : '';
+  }
+  function ago(d) { const s = (Date.now() - new Date(d)) / 1000; if (s < 90) return 'just now'; if (s < 3600) return Math.round(s / 60) + ' min ago'; if (s < 86400) return Math.round(s / 3600) + ' h ago'; return new Date(d).toLocaleDateString([], { day: 'numeric', month: 'short' }); }
+  function dot() {
+    const seen = getSeen(), n = msgs.filter(m => new Date(m.created_at).getTime() > seen).length, el = document.getElementById('msg-count-dot');
+    if (el) { el.textContent = n; el.classList.toggle('hidden', !n); }
+  }
+  const LABEL = { exercise: 'Start exercise', lesson: 'Read lesson', homework: 'Open homework', custom: 'Open link' };
+  function render() {
+    const box = document.getElementById('student-messages-container'); if (!box) return;
+    const seen = getSeen();
+    if (!msgs.length) { box.innerHTML = '<div class="text-center text-gray-500 py-8">No messages yet. Your teacher\'s notifications will appear here.</div>'; return; }
+    box.innerHTML = msgs.map((m, i) => {
+      const th = thumbFor(m), isNew = new Date(m.created_at).getTime() > seen, hasLink = !!m.link_url;
+      const main = m.kind === 'custom' ? (hasLink ? 1 : 0) : 1;
+      return `<div class="bg-white rounded-xl shadow-sm border ${isNew ? 'border-indigo-300' : 'border-gray-200'} overflow-hidden">
+        ${th ? `<button onclick="window.msgAct(${i}, true)" class="relative block w-full bg-black"><img src="${esc(th)}" alt="" class="w-full max-h-60 object-cover opacity-95"><span class="absolute inset-0 flex items-center justify-center"><span class="w-14 h-14 rounded-full bg-red-600/90 text-white flex items-center justify-center text-2xl">&#9654;</span></span></button>` : ''}
+        <div class="p-4 sm:p-5">
+          <div class="flex items-start justify-between gap-3"><h3 class="font-bold text-gray-900">${isNew ? '<span class="inline-block w-2 h-2 rounded-full bg-indigo-500 mr-2 align-middle"></span>' : ''}${esc(m.title)}</h3><span class="text-xs text-gray-400 whitespace-nowrap">${esc(ago(m.created_at))}</span></div>
+          ${m.body ? `<p class="text-sm text-gray-600 mt-1 whitespace-pre-line">${esc(m.body)}</p>` : ''}
+          <div class="mt-3 flex flex-wrap gap-2">
+            ${main ? `<button onclick="window.msgAct(${i})" class="px-4 py-2 text-sm font-medium rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">${m.kind === 'custom' ? (th ? '&#9654; Watch / open' : 'Open link &#8599;') : LABEL[m.kind]}</button>` : ''}
+            ${hasLink && m.kind !== 'custom' ? `<button onclick="window.msgAct(${i}, true)" class="px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 bg-white hover:bg-gray-50">Open link &#8599;</button>` : ''}
+          </div></div></div>`;
+    }).join('');
+  }
+  window.msgAct = function (i, linkOnly) {
+    const m = msgs[i]; if (!m) return;
+    if (m.link_url && (linkOnly || m.kind === 'custom')) { window.open(m.link_url, '_blank', 'noopener'); return; }
+    if (m.kind === 'exercise') { if ((typeof globalExercises !== 'undefined' ? globalExercises : []).some(x => x.id == m.item_id)) window.openExercise(m.item_id); else alert('This exercise is not available any more.'); }
+    else if (m.kind === 'lesson') { window.switchStudentTab('lessons'); window.readLesson(m.item_id); }
+    else if (m.kind === 'homework') window.switchStudentTab('homework');
+  };
+  async function load() {
+    const c = currentStudentClass; if (!c || typeof supabaseClient === 'undefined' || !isDbConnected) return;
+    const { data, error } = await supabaseClient.from('portal_messages').select('*').in('class_name', [c, '*']).order('created_at', { ascending: false }).limit(30);
+    if (c !== currentStudentClass) return;
+    msgs = error || !data ? [] : data; dot();
+    if (currentStudentTabId === 'messages') render();
+  }
+  window.msgOpened = async function () {
+    await load(); render();
+    const newest = msgs.length ? Math.max(...msgs.map(m => new Date(m.created_at).getTime())) : 0;
+    try { if (newest) localStorage.setItem(seenKey(), String(newest)); } catch (e) {}
+    setTimeout(dot, 4000);
+  };
+  setInterval(() => {
+    const area = document.getElementById('student-content-area'); if (!area || area.offsetParent === null || !currentStudentClass) return;
+    if (cls !== currentStudentClass) { cls = currentStudentClass; msgs = []; dot(); }
+    load();
+  }, 30000);
+  setInterval(() => { const area = document.getElementById('student-content-area'); if (area && area.offsetParent !== null && currentStudentClass && cls !== currentStudentClass) { cls = currentStudentClass; msgs = []; load(); } }, 1500);
 })();
 </script>
 </body>
