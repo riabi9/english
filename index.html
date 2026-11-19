@@ -6755,7 +6755,7 @@ function renderLiveEx() {
   const toLocal = d => { const x = new Date(d); return ymd(x) + ' ' + hm(x); };
   const mondayOf = d => { const x = new Date(d); x.setHours(0, 0, 0, 0); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; };
   const PX = 0.8;   // pixels per minute (48 px per hour)
-  let cls = '', ov = null, allSess = [], programs = [], plans = [], regAll = false, regSort = 'name', regScroll = null, weekStart = mondayOf(new Date()), monthSel = '', progForm = null, calTop = null;
+  let cls = '', ov = null, allSess = [], programs = [], plans = [], regAll = false, regSort = 'name', regScroll = null, weekStart = mondayOf(new Date()), monthSel = '', progForm = null, calTop = null, ledOpen = {}, planOpen = {};
   const classNames = () => (typeof globalClasses !== 'undefined' ? globalClasses : []).map(c => c.name);
   const colorOf = c => PAL[Math.max(0, classNames().indexOf(c)) % PAL.length];
   const mySess = () => allSess.filter(x => x.class_name === cls);
@@ -6895,6 +6895,7 @@ function renderLiveEx() {
     });
   }
   async function updateSession(s, patch) {
+    if (patch.minutes != null && s.planned_minutes == null && patch.planned_minutes == null) patch.planned_minutes = s.minutes;
     const before = { ...s }; Object.assign(s, patch); render();
     try { await call({ action: 'sess_update', id: s.id, patch }); }
     catch (e) { Object.assign(s, before); render(); alert('Could not save: ' + e.message); }
@@ -6996,7 +6997,7 @@ function renderLiveEx() {
         <label class="block"><span class="text-xs font-medium text-gray-600">Class</span><select id="sm-class" class="border rounded px-2 py-1.5 w-full bg-white" ${isNew ? '' : 'disabled'}>${classNames().map(c => `<option ${c === (s ? s.class_name : cls) ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
         <div class="grid grid-cols-2 gap-3"><label class="block"><span class="text-xs font-medium text-gray-600">Date</span><input id="sm-date" type="date" class="border rounded px-2 py-1.5 w-full" value="${ymd(start)}"></label>
           <label class="block"><span class="text-xs font-medium text-gray-600">Start time</span><input id="sm-time" type="time" step="300" class="border rounded px-2 py-1.5 w-full" value="${hm(start)}"></label></div>
-        <div><span class="text-xs font-medium text-gray-600">How long (minutes)</span><div class="flex flex-wrap items-center gap-2 mt-1"><input id="sm-min" type="number" min="5" step="5" class="border rounded px-2 py-1.5 w-24" value="${mins}">
+        <div><span class="text-xs font-medium text-gray-600">How long it lasted (minutes)${s && s.planned_minutes && s.planned_minutes !== s.minutes ? ' &mdash; planned ' + s.planned_minutes : ''}</span><div class="flex flex-wrap items-center gap-2 mt-1"><input id="sm-min" type="number" min="5" step="5" class="border rounded px-2 py-1.5 w-24" value="${mins}">
           ${[30, 45, 60, 90, 120].map(m => `<button type="button" data-m="${m}" class="px-2.5 py-1 border rounded-full bg-white text-xs">${m >= 60 && m % 60 === 0 ? m / 60 + 'h' : m + 'm'}</button>`).join('')}</div></div>
         <div class="grid grid-cols-2 gap-3"><label class="block"><span class="text-xs font-medium text-gray-600">Status</span><select id="sm-status" class="border rounded px-2 py-1.5 w-full bg-white"><option value="scheduled" ${st0 === 'scheduled' ? 'selected' : ''}>Planned</option><option value="held" ${st0 === 'held' ? 'selected' : ''}>Done</option><option value="cancelled" ${st0 === 'cancelled' ? 'selected' : ''}>Cancelled</option></select></label>
           <label class="flex items-end gap-2 pb-2"><input id="sm-counts" type="checkbox" ${!s || s.counts ? 'checked' : ''}> Counts in the program</label></div>
@@ -7021,7 +7022,7 @@ function renderLiveEx() {
       try {
         if (isNew) { const n = 1 + Math.max(0, Math.min(52, Number($('sm-rep').value) || 0)), rows = []; for (let i = 0; i < n; i++) { const x = new Date(at); x.setDate(x.getDate() + 7 * i); rows.push({ starts_at: x.toISOString(), minutes: m, counts: $('sm-counts').checked, note: $('sm-note').value, status: i === 0 ? $('sm-status').value : (x < new Date() ? 'held' : 'scheduled') }); }
           await call({ action: 'sess_create', class_name: $('sm-class').value, rows }); if ($('sm-class').value !== cls) { cls = $('sm-class').value; ov = null; } }
-        else await call({ action: 'sess_update', id: s.id, patch: { starts_at: at.toISOString(), minutes: m, status: $('sm-status').value, counts: $('sm-counts').checked, note: $('sm-note').value } });
+        else await call({ action: 'sess_update', id: s.id, patch: { starts_at: at.toISOString(), minutes: m, planned_minutes: s.planned_minutes || s.minutes, status: $('sm-status').value, counts: $('sm-counts').checked, note: $('sm-note').value } });
         close(); await load();
       } catch (e) { out.textContent = e.message; }
     };
@@ -7035,9 +7036,9 @@ function renderLiveEx() {
     const cards = list.map(p => { const used = progUsed(p, sess), q = Number(p.quantity), pct = q ? Math.min(100, Math.round(used / q * 100)) : 0, over = used > q, day = ymd(new Date()), active = p.start_date <= day && day <= p.end_date;
       return `<div class="border rounded-lg p-3 bg-white"><div class="flex flex-wrap justify-between gap-2"><div><b>${esc(p.name || 'Program')}</b> ${active ? '<span class="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">active</span>' : p.end_date < day ? '<span class="text-xs px-2 py-0.5 rounded-full bg-gray-200 text-gray-600">finished</span>' : '<span class="text-xs px-2 py-0.5 rounded-full bg-sky-100 text-sky-800">upcoming</span>'}
         <div class="text-xs text-gray-500">${esc(p.start_date)} &rarr; ${esc(p.end_date)} &bull; ${fmtN(q)} ${p.unit}${Number(p.price) ? ' &bull; ' + fmtN(Number(p.price)) + ' ' + esc(p.currency) : ''}${p.note ? ' &bull; ' + esc(p.note) : ''}</div></div>
-        <div class="flex gap-3 text-sm"><button data-pe="${p.id}" class="text-indigo-600 hover:underline">Edit</button><button data-pd="${p.id}" class="text-red-500 hover:underline">Delete</button></div></div>
+        <div class="flex gap-3 text-sm"><button data-pl="${p.id}" class="text-emerald-700 font-medium hover:underline">${ledOpen[p.id] === undefined ? (active ? '\u25BE' : '\u25B8') : (ledOpen[p.id] ? '\u25BE' : '\u25B8')} Sessions table</button><button data-pe="${p.id}" class="text-indigo-600 hover:underline">Edit</button><button data-pd="${p.id}" class="text-red-500 hover:underline">Delete</button></div></div>
         <div class="h-2 bg-gray-100 rounded-full mt-2 overflow-hidden"><div class="h-2 ${over ? 'bg-red-500' : 'bg-indigo-500'}" style="width:${pct}%"></div></div>
-        <div class="text-xs text-gray-600 mt-1">${fmtN(used)} of ${fmtN(q)} ${p.unit} used &bull; ${over ? 'over by ' + fmtN(used - q) : fmtN(q - used) + ' left'}</div></div>`; }).join('');
+        <div class="text-xs text-gray-600 mt-1">${fmtN(used)} of ${fmtN(q)} ${p.unit} used &bull; ${over ? 'over by ' + fmtN(used - q) : fmtN(q - used) + ' left'}</div>${(ledOpen[p.id] === undefined ? active : ledOpen[p.id]) ? ledgerHtml(p) : ''}</div>`; }).join('');
     const f = progForm;
     const form = !f ? '' : `<div class="border rounded-lg p-4 bg-indigo-50/40 space-y-3 mt-3"><h5 class="font-semibold">${f.id ? 'Edit program' : 'New program for ' + esc(cls)}</h5>
       <div class="grid sm:grid-cols-2 gap-3"><label class="block"><span class="text-xs font-medium text-gray-600">Name</span><input id="pg-name" class="border rounded px-2 py-1.5 w-full" value="${esc(f.name)}" placeholder="e.g. 3-month intensive"></label>
@@ -7050,14 +7051,89 @@ function renderLiveEx() {
       <label class="block"><span class="text-xs font-medium text-gray-600">Note</span><input id="pg-note" class="border rounded px-2 py-1.5 w-full" value="${esc(f.note)}"></label>
       ${f.id ? '' : `<div class="rounded-lg bg-white border p-3"><label class="font-medium"><input id="pg-auto" type="checkbox" ${f.auto ? 'checked' : ''}> Also fill the calendar with this program's sessions</label>
         <div class="mt-2 space-y-2"><div class="flex flex-wrap gap-3">${DAYS.map(([n, l]) => `<label><input type="checkbox" class="pg-day" value="${n}" ${f.days.includes(n) ? 'checked' : ''}> ${l}</label>`).join('')}</div>
-        <div class="flex flex-wrap items-center gap-3"><label>Time <input id="pg-time" type="time" class="border rounded px-2 py-1" value="${esc(f.time)}"></label><label>Minutes <input id="pg-min" type="number" min="5" step="5" class="border rounded px-2 py-1 w-20" value="${esc(f.minutes)}"></label><label><input id="pg-past" type="checkbox" ${f.past ? 'checked' : ''}> Mark past dates as done</label></div>
+        <div class="flex flex-wrap items-center gap-3"><label>Time <input id="pg-time" type="time" class="border rounded px-2 py-1" value="${esc(f.time)}"></label><label>Minutes <input id="pg-min" type="number" min="5" step="5" class="border rounded px-2 py-1 w-20" value="${esc(f.minutes)}"></label><label><input id="pg-past" type="checkbox" ${f.past ? 'checked' : ''}> Mark past dates as done (you can still adjust each one)</label></div>
         <p class="text-xs text-gray-500">Sessions are created week by week from the start date until the hours/sessions run out or the end date is reached. You can drag any of them afterwards.</p></div></div>`}
       <div><button id="pg-save" class="bg-indigo-600 text-white px-4 py-1.5 rounded-lg">${f.id ? 'Save program' : 'Create program'}</button><button id="pg-cancel" class="ml-2 px-3 py-1.5 border rounded-lg bg-white">Cancel</button><span id="pg-out" class="ml-2 text-sm text-red-600"></span></div></div>`;
     return `<div class="mb-6"><div class="flex flex-wrap items-center justify-between gap-2 mb-2"><h4 class="font-semibold text-gray-800">&#127919; Programs &mdash; ${esc(cls)}</h4><button id="pg-new" class="px-3 py-1.5 text-sm rounded-lg bg-indigo-600 text-white">+ New program</button></div>
       <div class="space-y-2">${cards || '<div class="text-gray-500 text-sm">No program yet. A program is what you sold: e.g. 24 hours over 3 months.</div>'}</div>${form}</div>`;
   }
-  function newForm() { const t = new Date(); return { name: '', start: ymd(t), end: ymd(addMonths(t, 3)), unit: 'hours', quantity: '', price: '', currency: '', note: '', auto: false, days: [], time: '18:00', minutes: Number(localStorage.getItem('sess_last_min')) || 60, past: true }; }
+
+  // ---------- program ledger: every session of the program, mark done + real duration ----------
+  const STAT = { scheduled: 'Planned', held: 'Done', cancelled: 'Cancelled', postponed: 'Postponed' };
+  function ledgerHtml(p) {
+    const rows = allSess.filter(x => x.class_name === p.class_name && localDay(x.starts_at) >= p.start_date && localDay(x.starts_at) <= p.end_date).sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at));
+    const q = Number(p.quantity), hours = p.unit === 'hours', U = m => hours ? m / 60 : 1, now = new Date();
+    let cum = 0, proj = 0, doneMin = 0, plannedRemMin = 0;
+    const body = rows.map((x, i) => {
+      const planned = x.planned_minutes || x.minutes, counted = x.counts !== false, d = new Date(x.starts_at), held = x.status === 'held', canc = x.status === 'cancelled';
+      if (held && counted) { cum += U(x.minutes); proj += U(x.minutes); doneMin += x.minutes; } else if (x.status === 'scheduled' && counted) { proj += U(planned); plannedRemMin += planned; }
+      const delta = held && x.minutes !== planned ? x.minutes - planned : 0, late = x.status === 'scheduled' && d < now;
+      const left = held && counted ? `<b class="${q - cum < 0 ? 'text-red-600' : 'text-gray-800'}">${fmtN(q - cum)}</b>` : (x.status === 'scheduled' && counted ? `<span class="text-gray-400" title="if it goes as planned">~${fmtN(q - proj)}</span>` : '<span class="text-gray-300">-</span>');
+      const bg = held ? 'bg-emerald-50/60' : canc ? 'bg-gray-50 text-gray-400' : late ? 'bg-amber-50' : '';
+      return `<tr class="border-t ${bg}" data-sid="${x.id}"><td class="py-1.5 px-2 text-gray-400">${i + 1}</td>
+        <td class="px-2 whitespace-nowrap"><button data-led-open="${x.id}" class="text-indigo-700 hover:underline text-left">${esc(d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' }))} <span class="text-gray-500">${hm(d)}</span></button>${late ? ' <span class="text-[10px] text-amber-700">to confirm</span>' : ''}${counted ? '' : ' <span class="text-[10px] text-violet-700">free</span>'}</td>
+        <td class="px-2 text-gray-500">${planned} min</td>
+        <td class="px-2 whitespace-nowrap"><button data-led-m="${x.id}" data-d="-15" class="w-6 h-6 rounded border bg-white text-gray-600">&minus;</button> <input data-led-min="${x.id}" type="number" min="5" step="5" value="${x.minutes}" class="w-16 border rounded px-1 py-0.5 text-center ${delta ? (delta > 0 ? 'border-amber-400' : 'border-sky-400') : ''}"> <button data-led-m="${x.id}" data-d="15" class="w-6 h-6 rounded border bg-white text-gray-600">+</button>${delta ? ` <span class="text-[11px] ${delta > 0 ? 'text-amber-700' : 'text-sky-700'}">${delta > 0 ? '+' : ''}${delta}m</span>` : ''}</td>
+        <td class="px-2"><select data-led-st="${x.id}" class="border rounded px-1 py-0.5 bg-white text-xs">${Object.entries(STAT).map(([k, v]) => `<option value="${k}" ${x.status === k ? 'selected' : ''}>${v}</option>`).join('')}</select></td>
+        <td class="px-2 text-center">${held ? '<span class="text-emerald-600">&#10003;</span>' : (canc ? '' : `<button data-led-ok="${x.id}" class="px-2 py-0.5 rounded bg-emerald-600 text-white text-xs">Done</button>`)}</td>
+        <td class="px-2 text-right">${left}</td></tr>`;
+    }).join('');
+    const unsched = Math.max(0, q - proj), pastPlanned = rows.filter(x => x.status === 'scheduled' && new Date(x.starts_at) < now).length;
+    return `<div class="mt-3 border-t pt-3"><div class="flex flex-wrap items-center justify-between gap-2 mb-2 text-xs text-gray-600">
+        <span>Done: <b>${fmtN(hours ? doneMin / 60 : rows.filter(x => x.status === 'held' && x.counts !== false).length)}</b> ${hours ? 'h' : 'sessions'} &bull; planned still to do: <b>${fmtN(hours ? plannedRemMin / 60 : rows.filter(x => x.status === 'scheduled' && x.counts !== false).length)}</b> ${hours ? 'h' : ''} &bull; not scheduled yet: <b class="${unsched > 0 ? 'text-amber-700' : ''}">${fmtN(unsched)}</b> ${hours ? 'h' : ''}</span>
+        <span class="flex gap-2">${pastPlanned ? `<button data-led-allpast="${p.id}" class="px-2 py-1 rounded border bg-white">Mark ${pastPlanned} past session${pastPlanned > 1 ? 's' : ''} as done</button>` : ''}<button data-led-plan="${p.id}" class="px-2 py-1 rounded border bg-indigo-600 text-white">Plan sessions</button><button data-led-add="${p.id}" class="px-2 py-1 rounded border bg-white">+ Add one</button></span></div>${(planOpen[p.id] === undefined ? !rows.length : planOpen[p.id]) ? planForm(p, rows) : ''}
+      <p class="text-[11px] text-gray-500 mb-2">Set the real duration for each session (more or less than planned). Only <b>Done</b> sessions are deducted from the program, using the real duration.</p>
+      <div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-left text-[11px] text-gray-500"><th class="px-2">#</th><th class="px-2">Date</th><th class="px-2">Planned</th><th class="px-2">Real duration</th><th class="px-2">Status</th><th class="px-2"></th><th class="px-2 text-right">${hours ? 'Hours' : 'Sessions'} left</th></tr></thead><tbody>${body || '<tr><td colspan="7" class="py-3 px-2 text-gray-500">No sessions yet. Use the form above to plan them.</td></tr>'}</tbody></table></div></div>`;
+  }
+
+  function planForm(p, rows) {
+    const last = rows.length ? new Date(rows[rows.length - 1].starts_at) : null, lastMin = Number(localStorage.getItem('sess_last_min')) || 60;
+    const days = rows.length ? [...new Set(rows.map(x => new Date(x.starts_at).getDay()))] : [];
+    return `<div data-planbox="${p.id}" class="mb-3 rounded-lg border border-indigo-200 bg-indigo-50/50 p-3 text-sm space-y-2"><b>Plan the sessions of this program</b>
+      <div class="flex flex-wrap gap-3">${DAYS.map(([n, l]) => `<label><input type="checkbox" class="pl-day" value="${n}" ${days.includes(n) ? 'checked' : ''}> ${l}</label>`).join('')}</div>
+      <div class="flex flex-wrap items-center gap-3"><label>Time <input type="time" class="pl-time border rounded px-2 py-1" value="${last ? hm(last) : '18:00'}"></label>
+        <label>Minutes <input type="number" min="5" step="5" class="pl-min border rounded px-2 py-1 w-20" value="${lastMin}"></label>
+        <label>From <input type="date" class="pl-from border rounded px-2 py-1" value="${p.start_date}"></label>
+        <label><input type="checkbox" class="pl-past" checked> Past dates already done</label></div>
+      <p class="text-xs text-gray-500">Creates sessions week by week until the ${p.unit} are all planned or the program ends. Dates that already have a session are skipped.</p>
+      <button data-led-gen="${p.id}" class="px-3 py-1.5 rounded-lg bg-indigo-600 text-white">Add to the calendar</button><span class="pl-out ml-2 text-red-600"></span></div>`;
+  }
+  async function genSessions(p, box) {
+    const out = box.querySelector('.pl-out'); out.textContent = '';
+    const days = [...box.querySelectorAll('.pl-day')].filter(x => x.checked).map(x => Number(x.value)), time = box.querySelector('.pl-time').value || '18:00', mins = Math.max(5, Number(box.querySelector('.pl-min').value) || 60), from = box.querySelector('.pl-from').value || p.start_date, past = box.querySelector('.pl-past').checked;
+    if (!days.length) { out.textContent = 'Tick the weekdays.'; return; }
+    const hours = p.unit === 'hours', q = Number(p.quantity), inRange = allSess.filter(x => x.class_name === p.class_name && localDay(x.starts_at) >= p.start_date && localDay(x.starts_at) <= p.end_date);
+    const existing = new Set(allSess.filter(x => x.class_name === p.class_name).map(x => toLocal(x.starts_at)));
+    let total = inRange.filter(x => x.status !== 'cancelled' && x.counts !== false).reduce((a, x) => a + (hours ? (x.status === 'held' ? x.minutes : (x.planned_minutes || x.minutes)) / 60 : 1), 0);
+    const rows = [], d = new Date(from + 'T' + time), last = new Date(p.end_date + 'T23:59');
+    for (let i = 0; i < 800; i++) { const x = new Date(d); x.setDate(d.getDate() + i); if (x > last) break; if (!days.includes(x.getDay()) || existing.has(toLocal(x))) continue;
+      const add = hours ? mins / 60 : 1; if (total + add > q + 1e-9) break; total += add; rows.push({ starts_at: x.toISOString(), minutes: mins, planned_minutes: mins, status: past && x < new Date() ? 'held' : 'scheduled' }); }
+    if (!rows.length) { out.textContent = 'Nothing to add: the program is already fully planned (or no matching dates).'; return; }
+    try { for (let i = 0; i < rows.length; i += 300) await call({ action: 'sess_create', class_name: p.class_name, rows: rows.slice(i, i + 300) });
+      localStorage.setItem('sess_last_min', String(mins)); planOpen[p.id] = false; weekStart = mondayOf(new Date(rows.find(r => new Date(r.starts_at) >= new Date()) ? rows.find(r => new Date(r.starts_at) >= new Date()).starts_at : rows[0].starts_at)); calTop = null; await load();
+    } catch (e) { out.textContent = e.message; }
+  }
+  function wireLedger() {
+    const root = $('sess-root'), byId = id => allSess.find(x => String(x.id) === String(id));
+    root.onclick = async e => {
+      const t = e.target.closest('button'); if (!t) return;
+      if (t.dataset.pl) { const p = programs.find(x => String(x.id) === t.dataset.pl), day = ymd(new Date()), act = p && p.start_date <= day && day <= p.end_date; ledOpen[t.dataset.pl] = !(ledOpen[t.dataset.pl] === undefined ? act : ledOpen[t.dataset.pl]); render(); return; }
+      if (t.dataset.ledPlan) { const was = planOpen[t.dataset.ledPlan] === undefined ? !allSess.some(x => x.class_name === cls && programs.find(q => String(q.id) === t.dataset.ledPlan && localDay(x.starts_at) >= q.start_date && localDay(x.starts_at) <= q.end_date)) : planOpen[t.dataset.ledPlan]; planOpen[t.dataset.ledPlan] = !was; render(); return; }
+      if (t.dataset.ledGen) { const p = programs.find(x => String(x.id) === t.dataset.ledGen); if (p) genSessions(p, t.closest('[data-planbox]')); return; }
+      if (t.dataset.ledOpen) { openModal({ id: Number(t.dataset.ledOpen) }); return; }
+      if (t.dataset.ledOk) { const x = byId(t.dataset.ledOk); if (x) updateSession(x, { status: 'held' }); return; }
+      if (t.dataset.ledM) { const x = byId(t.dataset.ledM); if (x) updateSession(x, { minutes: Math.max(5, x.minutes + Number(t.dataset.d)) }); return; }
+      if (t.dataset.ledAllpast) { const p = programs.find(x => String(x.id) === t.dataset.ledAllpast), now = new Date(); const list = allSess.filter(x => x.class_name === p.class_name && x.status === 'scheduled' && new Date(x.starts_at) < now && localDay(x.starts_at) >= p.start_date && localDay(x.starts_at) <= p.end_date); if (!list.length || !confirm('Mark ' + list.length + ' past session(s) as done with their planned duration?')) return; for (const x of list) await updateSession(x, { status: 'held' }); return; }
+      if (t.dataset.ledAdd) { const p = programs.find(x => String(x.id) === t.dataset.ledAdd), rows = allSess.filter(x => x.class_name === p.class_name).sort((a, b) => new Date(b.starts_at) - new Date(a.starts_at)); const last = rows[0] ? new Date(rows[0].starts_at) : new Date(); const d = new Date(Math.max(Date.now(), last.getTime())); d.setDate(d.getDate() + (rows[0] ? 7 : 0)); d.setHours(last.getHours() || 18, last.getMinutes() || 0, 0, 0); openModal({ start: d }); }
+    };
+    root.onchange = e => {
+      const t = e.target; if (t.dataset && t.dataset.ledMin) { const x = byId(t.dataset.ledMin); if (x) updateSession(x, { minutes: Math.max(5, Number(t.value) || x.minutes) }); }
+      else if (t.dataset && t.dataset.ledSt) { const x = byId(t.dataset.ledSt); if (x) updateSession(x, { status: t.value }); }
+    };
+  }
+  function newForm() { const t = new Date(); return { name: '', start: ymd(t), end: ymd(addMonths(t, 3)), unit: 'hours', quantity: '', price: '', currency: '', note: '', auto: true, days: [], time: '18:00', minutes: Number(localStorage.getItem('sess_last_min')) || 60, past: true }; }
   function wireProg() {
+    wireLedger();
     if ($('pg-new')) $('pg-new').onclick = () => { progForm = newForm(); render(); };
     const root = $('sess-root');
     root.querySelectorAll('[data-pe]').forEach(b => b.onclick = () => { const p = programs.find(x => String(x.id) === b.dataset.pe); progForm = { id: p.id, name: p.name, start: p.start_date, end: p.end_date, unit: p.unit, quantity: p.quantity, price: p.price || '', currency: p.currency, note: p.note, days: [] }; render(); });
@@ -7069,15 +7145,20 @@ function renderLiveEx() {
       const out = $('pg-out'), q = Number($('pg-qty').value) || 0, start = $('pg-start').value, end = $('pg-end').value, unit = $('pg-unit').value;
       if (!start || !end || end < start) { out.textContent = 'Check the start and end dates.'; return; }
       if (!q) { out.textContent = 'Enter how many ' + unit + ' were sold.'; return; }
+      if (!progForm.id && $('pg-auto') && $('pg-auto').checked && ![...document.querySelectorAll('.pg-day')].some(x => x.checked)) { out.textContent = 'Tick the weekdays of the sessions (or untick "fill the calendar").'; return; }
       try {
         const r = await call({ action: 'prog_save', id: progForm.id, class_name: cls, name: $('pg-name').value.trim(), unit, quantity: q, start_date: start, end_date: end, price: $('pg-price').value, currency: $('pg-cur').value.trim(), note: $('pg-note').value });
+        if (r.program) ledOpen[r.program.id] = true;
         if (!progForm.id && $('pg-auto') && $('pg-auto').checked) {
           const days = [...document.querySelectorAll('.pg-day')].filter(x => x.checked).map(x => Number(x.value)), time = $('pg-time').value || '18:00', mins = Math.max(5, Number($('pg-min').value) || 60), past = $('pg-past').checked;
           if (!days.length) { out.textContent = 'Program saved. Tick the weekdays to plan sessions.'; await load(); return; }
           const rows = []; let total = 0; const d = new Date(start + 'T' + time), last = new Date(end + 'T23:59');
           for (let i = 0; i < 800; i++) { const x = new Date(d); x.setDate(d.getDate() + i); if (x > last) break; if (!days.includes(x.getDay())) continue;
-            const add = unit === 'hours' ? mins / 60 : 1; if (total + add > q + 1e-9) break; total += add; rows.push({ starts_at: x.toISOString(), minutes: mins, status: past && x < new Date() ? 'held' : 'scheduled' }); }
-          if (rows.length) { for (let i = 0; i < rows.length; i += 300) await call({ action: 'sess_create', class_name: cls, rows: rows.slice(i, i + 300) }); localStorage.setItem('sess_last_min', String(mins)); }
+            const add = unit === 'hours' ? mins / 60 : 1; if (total + add > q + 1e-9) break; total += add; rows.push({ starts_at: x.toISOString(), minutes: mins, planned_minutes: mins, status: past && x < new Date() ? 'held' : 'scheduled' }); }
+          if (rows.length) {
+            try { for (let i = 0; i < rows.length; i += 300) await call({ action: 'sess_create', class_name: cls, rows: rows.slice(i, i + 300) }); localStorage.setItem('sess_last_min', String(mins)); weekStart = mondayOf(new Date(rows.find(r => new Date(r.starts_at) >= new Date()) ? rows.find(r => new Date(r.starts_at) >= new Date()).starts_at : rows[0].starts_at)); calTop = null; }
+            catch (e2) { progForm = null; await load(); alert('The program was saved, but its sessions could not be created: ' + e2.message + '\nUse "Plan sessions" on the program to try again.'); return; }
+          }
         }
         progForm = null; await load();
       } catch (e) { out.textContent = e.message; }
