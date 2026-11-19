@@ -6672,129 +6672,385 @@ function renderLiveEx() {
   };
 })();
 
-// ---------- Admin: Sessions & attendance ----------
+// ---------- Admin: Sessions, calendar, programs, attendance ----------
 (function(){
   const $ = id => document.getElementById(id), esc = v => escapeHtml(String(v == null ? '' : v)), call = b => window.__adminCall(b);
   const DAYS = [[1,'Mon'],[2,'Tue'],[3,'Wed'],[4,'Thu'],[5,'Fri'],[6,'Sat'],[0,'Sun']];
   const ST = { present: ['Present', 'bg-emerald-100 text-emerald-800'], late: ['Late', 'bg-amber-100 text-amber-800'], absent: ['Absent', 'bg-red-100 text-red-800'], excused: ['Excused', 'bg-sky-100 text-sky-800'] };
-  const SS = { scheduled: ['Scheduled', 'bg-gray-100 text-gray-700'], held: ['Done', 'bg-emerald-100 text-emerald-800'], cancelled: ['Cancelled', 'bg-gray-200 text-gray-500'], postponed: ['Postponed', 'bg-amber-100 text-amber-800'] };
+  const PAL = [['#4f46e5','#e0e7ff'],['#059669','#d1fae5'],['#d97706','#fef3c7'],['#db2777','#fce7f3'],['#0284c7','#e0f2fe'],['#7c3aed','#ede9fe'],['#dc2626','#fee2e2'],['#0d9488','#ccfbf1']];
   const pad = n => String(n).padStart(2, '0');
-  const toLocal = d => { const x = new Date(d); return x.getFullYear() + '-' + pad(x.getMonth() + 1) + '-' + pad(x.getDate()) + ' ' + pad(x.getHours()) + ':' + pad(x.getMinutes()); };
-  let cls = '', ov = null, filter = 'all', openAtt = null;
+  const ymd = d => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  const hm = d => pad(d.getHours()) + ':' + pad(d.getMinutes());
+  const toLocal = d => { const x = new Date(d); return ymd(x) + ' ' + hm(x); };
+  const mondayOf = d => { const x = new Date(d); x.setHours(0, 0, 0, 0); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; };
+  const PX = 0.8;   // pixels per minute (48 px per hour)
+  let cls = '', ov = null, allSess = [], programs = [], plans = [], regAll = false, regSort = 'name', regScroll = null, weekStart = mondayOf(new Date()), monthSel = '', progForm = null, calTop = null;
   const classNames = () => (typeof globalClasses !== 'undefined' ? globalClasses : []).map(c => c.name);
-  function attOf(sid) { return (ov.attendance || []).filter(a => a.session_id === sid); }
+  const colorOf = c => PAL[Math.max(0, classNames().indexOf(c)) % PAL.length];
+  const mySess = () => allSess.filter(x => x.class_name === cls);
+  const myProgs = () => programs.filter(x => x.class_name === cls);
+  const localDay = iso => ymd(new Date(iso));
+  const fmtN = n => (Math.round(n * 10) / 10).toString();
+
+  // ---- programs maths (client side, same rules as the server) ----
+  function pickProgram(list) { const day = ymd(new Date()); const act = list.filter(p => p.start_date <= day && day <= p.end_date).sort((a, b) => b.start_date.localeCompare(a.start_date))[0]; return act || list.slice().sort((a, b) => b.end_date.localeCompare(a.end_date))[0] || null; }
+  function progSessions(p, sess) { return sess.filter(x => x.class_name === p.class_name && x.status === 'held' && x.counts !== false && localDay(x.starts_at) >= p.start_date && localDay(x.starts_at) <= p.end_date); }
+  function progUsed(p, sess, to) { let l = progSessions(p, sess); if (to) l = l.filter(x => localDay(x.starts_at) <= to); return p.unit === 'hours' ? l.reduce((a, x) => a + (Number(x.minutes) || 0), 0) / 60 : l.length; }
+  function computeSummary() {
+    const sess = mySess(), pl = (ov && ov.plan) || { plan_type: 'none', total: 0 }, prog = pickProgram(myProgs());
+    const base = { held_all: sess.filter(x => x.status === 'held').length, upcoming: sess.filter(x => x.status === 'scheduled' && new Date(x.starts_at) >= Date.now()).length, cancelled: sess.filter(x => x.status === 'cancelled').length };
+    if (prog) { const used = progUsed(prog, allSess), total = Number(prog.quantity); return { ...base, kind: 'program', prog, unit: prog.unit, total, used, left: Math.max(0, total - used), over: used > total, daysLeft: Math.ceil((new Date(prog.end_date + 'T23:59:59') - Date.now()) / 86400000) }; }
+    const held = sess.filter(x => x.status === 'held' && x.counts !== false), now = new Date();
+    const used = pl.plan_type === 'monthly' ? held.filter(x => { const d = new Date(x.starts_at); return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth(); }).length : held.length;
+    return { ...base, kind: pl.plan_type, unit: 'sessions', total: Number(pl.total) || 0, used, left: pl.plan_type === 'none' || !pl.total ? null : Math.max(0, pl.total - used) };
+  }
+  const recompute = () => {};
+
+  // ---------- page ----------
   function render() {
+    const m = document.querySelector('main'), top = m ? m.scrollTop : 0, opened = [...document.querySelectorAll('#sess-root details')].map(d => d.open);
+    const cs = $('cal-scroll'); if (cs) calTop = cs.scrollTop;
+    render0();
+    document.querySelectorAll('#sess-root details').forEach((d, i) => { if (opened[i] != null) d.open = opened[i]; });
+    if (m) m.scrollTop = top;
+    const sc = $('reg-scroll'); if (sc) { if (regScroll == null) sc.scrollLeft = sc.scrollWidth; else sc.scrollLeft = regScroll; }
+    const c2 = $('cal-scroll'); if (c2) c2.scrollTop = calTop == null ? Math.max(0, (8 - calStartHour()) * 60 * PX - 10) : calTop;
+  }
+  function render0() {
     const names = classNames(); if (!cls || !names.includes(cls)) cls = names[0] || '';
-    const sel = `<select id="se-class" class="border rounded px-2 py-1.5 bg-white">${names.map(c => `<option ${c === cls ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>`;
     if (!cls) { $('sess-root').innerHTML = 'Create a class first.'; return; }
+    const sel = `<select id="se-class" class="border rounded px-2 py-1.5 bg-white font-medium">${names.map(c => `<option ${c === cls ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select>`;
     if (!ov) { $('sess-root').innerHTML = `<div class="mb-3">${sel}</div>Loading...`; $('se-class').onchange = e => { cls = e.target.value; load(); }; return; }
-    const sm = ov.summary, pl = ov.plan, left = sm.left;
-    const planTxt = pl.plan_type === 'total' ? `Pack of ${sm.total}: <b>${sm.used}</b> used` : pl.plan_type === 'monthly' ? `Monthly allowance ${sm.total}: <b>${sm.used}</b> used this month` : 'Tracking only (no limit)';
-    const warn = left != null && left <= 3 ? `<span class="ml-2 text-xs font-semibold px-2 py-0.5 rounded-full ${left === 0 ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800'}">${left === 0 ? 'No sessions left' : 'Only ' + left + ' left'}</span>` : '';
-    const now = Date.now(), list = ov.sessions.filter(x => filter === 'all' ? true : filter === 'upcoming' ? new Date(x.starts_at) >= now && x.status === 'scheduled' : new Date(x.starts_at) < now || x.status !== 'scheduled');
-    const up = list.filter(x => x.status === 'scheduled' && new Date(x.starts_at) >= now).sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at));
-    const rest = list.filter(x => !up.includes(x)).sort((a, b) => new Date(b.starts_at) - new Date(a.starts_at));
-    const row = x => {
-      const at = attOf(x.id), c = k => at.filter(a => a.status === k).length, d = new Date(x.starts_at), s = SS[x.status] || SS.scheduled;
-      return `<li class="border rounded-lg p-3 bg-white"><div class="flex flex-wrap items-center justify-between gap-2">
-        <div><b>${esc(d.toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' }))}</b> ${esc(d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))} <span class="text-gray-500">&bull; ${x.minutes} min</span>
-          <span class="ml-1 text-xs px-2 py-0.5 rounded-full ${s[1]}">${s[0]}</span>${x.counts ? '' : ' <span class="text-xs px-2 py-0.5 rounded-full bg-violet-100 text-violet-800">free</span>'}
-          ${at.length ? `<span class="ml-2 text-xs text-gray-500">P ${c('present')} &bull; L ${c('late')} &bull; A ${c('absent')} &bull; E ${c('excused')}</span>` : ''}${x.note ? `<span class="block text-xs text-gray-500">${esc(x.note)}</span>` : ''}</div>
-        <div class="flex gap-3 text-sm"><button data-a="att" data-id="${x.id}" class="text-indigo-600 hover:underline">Attendance</button>
-          <button data-a="${x.status === 'cancelled' ? 'restore' : 'cancel'}" data-id="${x.id}" class="text-amber-600 hover:underline">${x.status === 'cancelled' ? 'Restore' : 'Cancel'}</button>
-          <button data-a="move" data-id="${x.id}" class="text-gray-600 hover:underline">Move</button>
-          <button data-a="free" data-id="${x.id}" class="text-violet-600 hover:underline">${x.counts ? 'Mark free' : 'Mark counted'}</button>
-          <button data-a="del" data-id="${x.id}" class="text-red-500 hover:underline">Delete</button></div></div>
-        ${openAtt === x.id ? attPanel(x) : ''}</li>`;
-    };
-    const per = ov.students.map(s => { const a = (ov.attendance || []).filter(y => y.student_id === s.id), c = k => a.filter(y => y.status === k).length, att = c('present') + c('late'), tot = att + c('absent'); return `<tr class="border-t"><td class="py-1 pr-3">${esc(s.name)}</td><td>${c('present')}</td><td>${c('late')}</td><td>${c('absent')}</td><td>${c('excused')}</td><td>${tot ? Math.round(att / tot * 100) + '%' : '-'}</td></tr>`; }).join('');
+    ov.sessions = mySess();
+    const sm = computeSummary(), pl = ov.plan, u = sm.unit === 'hours' ? 'h' : '';
+    const warn = sm.left != null && (sm.unit === 'hours' ? sm.left <= 3 : sm.left <= 3) ? `<span class="ml-2 text-xs font-semibold px-2 py-0.5 rounded-full ${sm.left === 0 ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800'}">${sm.left === 0 ? 'Nothing left' : 'Only ' + fmtN(sm.left) + (u ? ' h' : '') + ' left'}</span>` : '';
+    const head = sm.kind === 'program' ? `${esc(sm.prog.name || 'Program')}: <b>${fmtN(sm.used)}</b> of ${fmtN(sm.total)} ${sm.unit} used &bull; ends ${esc(new Date(sm.prog.end_date + 'T00:00').toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' }))} (${sm.daysLeft >= 0 ? sm.daysLeft + ' days left' : 'ended'})`
+      : sm.kind === 'total' ? `Pack of ${sm.total}: <b>${sm.used}</b> used` : sm.kind === 'monthly' ? `Monthly allowance ${sm.total}: <b>${sm.used}</b> used this month` : 'No program yet: add one below, or just track attendance.';
     $('sess-root').innerHTML = `
       <div class="flex flex-wrap items-center justify-between gap-3 mb-4"><h3 class="text-lg font-bold text-gray-900">&#128197; Sessions &amp; attendance</h3>${sel}</div>
-      <div class="rounded-lg bg-indigo-50 border border-indigo-100 p-4 mb-5"><div class="text-gray-800">${planTxt}${warn}</div>
-        <div class="text-3xl font-bold text-indigo-700 mt-1">${left == null ? sm.held_all : left}<span class="text-sm font-medium text-gray-500 ml-2">${left == null ? 'sessions done' : 'sessions left'}</span></div>
-        <div class="text-xs text-gray-500 mt-1">${sm.held_all} done &bull; ${sm.upcoming} upcoming &bull; ${sm.cancelled} cancelled</div></div>
-      <details class="mb-5" ${pl.plan_type === 'none' && !pl.total ? 'open' : ''}><summary class="cursor-pointer font-semibold text-gray-800">Plan &amp; visibility</summary>
-        <div class="grid sm:grid-cols-3 gap-3 mt-3">
+      <div class="rounded-lg bg-indigo-50 border border-indigo-100 p-4 mb-5"><div class="text-gray-800">${head}${warn}${sm.over ? '<span class="ml-2 text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-700">Over the program by ' + fmtN(sm.used - sm.total) + ' ' + sm.unit + '</span>' : ''}</div>
+        <div class="text-3xl font-bold text-indigo-700 mt-1">${sm.left == null ? sm.held_all : fmtN(sm.left)}<span class="text-sm font-medium text-gray-500 ml-2">${sm.left == null ? 'sessions done' : sm.unit + ' left'}</span></div>
+        <div class="text-xs text-gray-500 mt-1">${sm.held_all} sessions done &bull; ${sm.upcoming} upcoming &bull; ${sm.cancelled} cancelled</div></div>
+      ${calHtml()}
+      ${progHtml()}
+      ${regHtml()}
+      ${monthHtml()}
+      <details class="mb-2"><summary class="cursor-pointer font-semibold text-gray-800">Student visibility &amp; simple plan</summary>
+        <label class="block mt-3"><input id="pl-see" type="checkbox" ${pl.students_see ? 'checked' : ''}> Students of this class can see their own attendance and what is left</label>
+        <p class="text-xs text-gray-500 mt-3">Simple plan (only used when the class has no program):</p>
+        <div class="grid sm:grid-cols-3 gap-3 mt-1">
           <label class="block"><span class="text-xs font-medium text-gray-600">How sessions are counted</span><select id="pl-type" class="border rounded px-2 py-1.5 w-full bg-white"><option value="total" ${pl.plan_type === 'total' ? 'selected' : ''}>Pack / course total</option><option value="monthly" ${pl.plan_type === 'monthly' ? 'selected' : ''}>Monthly allowance</option><option value="none" ${pl.plan_type === 'none' ? 'selected' : ''}>Just track attendance</option></select></label>
           <label class="block"><span class="text-xs font-medium text-gray-600">Number of sessions</span><input id="pl-total" type="number" min="0" class="border rounded px-2 py-1.5 w-full" value="${pl.total || 0}"></label>
-          <label class="block"><span class="text-xs font-medium text-gray-600">Note (optional)</span><input id="pl-note" class="border rounded px-2 py-1.5 w-full" value="${esc(pl.note)}"></label></div>
-        <label class="block mt-3"><input id="pl-see" type="checkbox" ${pl.students_see ? 'checked' : ''}> Students of this class can see their own attendance and sessions left</label>
-        <button id="pl-save" class="mt-3 bg-indigo-600 text-white px-4 py-1.5 rounded-lg">Save plan</button><span id="pl-out" class="ml-2 text-sm"></span></details>
-      <details class="mb-5"><summary class="cursor-pointer font-semibold text-gray-800">Add sessions</summary>
-        <div class="mt-3 space-y-3"><div><span class="text-xs font-medium text-gray-600">Repeat weekly on (leave empty to add a single session on the start date)</span>
-          <div class="flex flex-wrap gap-3 mt-1">${DAYS.map(([n, l]) => `<label><input type="checkbox" class="se-day" value="${n}"> ${l}</label>`).join('')}</div></div>
-        <div class="grid sm:grid-cols-4 gap-3">
-          <label class="block"><span class="text-xs font-medium text-gray-600">Start date</span><input id="se-date" type="date" class="border rounded px-2 py-1.5 w-full" value="${toLocal(Date.now()).slice(0, 10)}"></label>
-          <label class="block"><span class="text-xs font-medium text-gray-600">Time</span><input id="se-time" type="time" class="border rounded px-2 py-1.5 w-full" value="18:00"></label>
-          <label class="block"><span class="text-xs font-medium text-gray-600">Minutes</span><input id="se-min" type="number" min="5" class="border rounded px-2 py-1.5 w-full" value="60"></label>
-          <label class="block"><span class="text-xs font-medium text-gray-600">How many sessions</span><input id="se-count" type="number" min="1" max="200" class="border rounded px-2 py-1.5 w-full" value="12"></label></div>
-        <button id="se-create" class="bg-indigo-600 text-white px-4 py-1.5 rounded-lg">Create sessions</button><span id="se-out" class="ml-2 text-sm"></span></div></details>
-      <div class="flex items-center justify-between mb-2"><h4 class="font-semibold text-gray-800">Sessions</h4>
-        <select id="se-filter" class="border rounded px-2 py-1 text-sm bg-white"><option value="all" ${filter === 'all' ? 'selected' : ''}>All</option><option value="upcoming" ${filter === 'upcoming' ? 'selected' : ''}>Upcoming</option><option value="past" ${filter === 'past' ? 'selected' : ''}>Past / done</option></select></div>
-      <ul id="se-list" class="space-y-2 mb-6">${up.concat(rest).map(row).join('') || '<li class="text-gray-500">No sessions yet. Use "Add sessions".</li>'}</ul>
-      <h4 class="font-semibold text-gray-800 mb-1">Per student</h4>
-      <div class="overflow-x-auto"><table class="text-sm"><thead><tr class="text-left text-xs text-gray-500"><th class="pr-3">Student</th><th class="pr-3">Present</th><th class="pr-3">Late</th><th class="pr-3">Absent</th><th class="pr-3">Excused</th><th>Rate</th></tr></thead><tbody>${per || '<tr><td class="text-gray-500 py-1">No students.</td></tr>'}</tbody></table></div>`;
-    $('se-class').onchange = e => { cls = e.target.value; openAtt = null; ov = null; render(); load(); };
-    $('se-filter').onchange = e => { filter = e.target.value; render(); };
-    $('pl-save').onclick = savePlan; $('se-create').onclick = create; $('se-list').onclick = rowAct;
-    if (openAtt) wireAtt();
-  }
-  function attPanel(x) {
-    const cur = {}; attOf(x.id).forEach(a => cur[a.student_id] = a.status);
-    return `<div class="mt-3 border-t pt-3" id="att-panel"><div class="flex justify-between mb-2"><b class="text-sm">Attendance</b><button data-all="1" class="text-sm text-indigo-600 hover:underline">Mark everyone present</button></div>
-      <div class="space-y-1">${ov.students.map(s => `<div class="flex flex-wrap items-center gap-2" data-sid="${esc(s.id)}" data-name="${esc(s.name)}"><span class="w-40 truncate text-sm">${esc(s.name)}</span>
-        ${Object.entries(ST).map(([k, v]) => `<button type="button" data-k="${k}" class="att-b text-xs px-2.5 py-1 rounded-full border ${cur[s.id] === k ? v[1] + ' border-transparent font-semibold' : 'bg-white text-gray-500'}">${v[0]}</button>`).join('')}</div>`).join('') || '<span class="text-gray-500 text-sm">No students in this class.</span>'}</div>
-      <div class="mt-3"><button id="att-save" class="bg-emerald-600 text-white px-4 py-1.5 rounded-lg text-sm">Save attendance (marks the session as done)</button><span id="att-out" class="ml-2 text-sm"></span></div></div>`;
-  }
-  function wireAtt() {
-    const pnl = $('att-panel'); if (!pnl) return;
-    pnl.onclick = e => {
-      const b = e.target.closest('button'); if (!b) return;
-      if (b.dataset.all) { pnl.querySelectorAll('[data-sid]').forEach(r => mark(r, 'present')); return; }
-      if (b.dataset.k) mark(b.closest('[data-sid]'), b.dataset.k);
-    };
-    $('att-save').onclick = async () => {
-      const items = [...pnl.querySelectorAll('[data-sid]')].map(r => ({ student_id: r.dataset.sid, student_name: r.dataset.name, status: r.dataset.cur })).filter(i => i.status);
-      try { await call({ action: 'att_save', session_id: openAtt, items, mark_held: true }); openAtt = null; await load(); } catch (e) { $('att-out').textContent = e.message; $('att-out').className = 'ml-2 text-sm text-red-600'; }
-    };
-    pnl.querySelectorAll('[data-sid]').forEach(r => { const on = r.querySelector('.att-b.font-semibold'); if (on) r.dataset.cur = on.dataset.k; });
-  }
-  function mark(row, k) {
-    row.dataset.cur = k;
-    row.querySelectorAll('.att-b').forEach(b => { const on = b.dataset.k === k; b.className = 'att-b text-xs px-2.5 py-1 rounded-full border ' + (on ? ST[b.dataset.k][1] + ' border-transparent font-semibold' : 'bg-white text-gray-500'); });
+          <label class="block"><span class="text-xs font-medium text-gray-600">Note shown to students</span><input id="pl-note" class="border rounded px-2 py-1.5 w-full" value="${esc(pl.note)}"></label></div>
+        <button id="pl-save" class="mt-3 bg-indigo-600 text-white px-4 py-1.5 rounded-lg">Save</button><span id="pl-out" class="ml-2 text-sm"></span></details>`;
+    $('se-class').onchange = e => { cls = e.target.value; ov = null; render(); load(); };
+    $('pl-save').onclick = savePlan; wireReg(); wireCal(); wireProg(); wireMonth();
   }
   async function savePlan() {
     const out = $('pl-out');
     try { await call({ action: 'sess_plan_save', class_name: cls, plan_type: $('pl-type').value, total: $('pl-total').value, students_see: $('pl-see').checked, note: $('pl-note').value }); await load(); }
     catch (e) { out.textContent = e.message; out.className = 'ml-2 text-sm text-red-600'; }
   }
-  async function create() {
-    const out = $('se-out'); out.className = 'ml-2 text-sm text-red-600';
-    const d = $('se-date').value, t = $('se-time').value || '18:00', mins = Number($('se-min').value) || 60, n = Math.min(200, Math.max(1, Number($('se-count').value) || 1));
-    const days = [...document.querySelectorAll('.se-day')].filter(x => x.checked).map(x => Number(x.value));
-    if (!d) { out.textContent = 'Pick a start date.'; return; }
-    const rows = [], cur = new Date(d + 'T' + t);
-    if (!days.length) rows.push({ starts_at: cur.toISOString(), minutes: mins });
-    else { for (let i = 0; i < 800 && rows.length < n; i++) { const x = new Date(cur); x.setDate(cur.getDate() + i); if (days.includes(x.getDay())) rows.push({ starts_at: x.toISOString(), minutes: mins }); } }
-    try { await call({ action: 'sess_create', class_name: cls, rows }); await load(); } catch (e) { out.textContent = e.message; }
+
+  // ---------- weekly calendar ----------
+  function calStartHour() { return 6; }
+  function weekBounds() {
+    let lo = 7 * 60, hi = 23 * 60;
+    for (let i = 0; i < 7; i++) { const d = new Date(weekStart); d.setDate(d.getDate() + i); const k = ymd(d); allSess.forEach(x => { const s = new Date(x.starts_at); if (ymd(s) !== k) return; const a = s.getHours() * 60 + s.getMinutes(); lo = Math.min(lo, Math.floor(a / 60) * 60); hi = Math.max(hi, Math.ceil((a + x.minutes) / 60) * 60); }); }
+    return [Math.max(0, lo), Math.min(24 * 60, hi)];
   }
-  async function rowAct(e) {
-    const b = e.target.closest('button[data-a]'); if (!b) return; const id = Number(b.dataset.id), x = ov.sessions.find(s => s.id === id), a = b.dataset.a;
-    try {
-      if (a === 'att') { openAtt = openAtt === id ? null : id; render(); return; }
-      if (a === 'cancel') await call({ action: 'sess_update', id, patch: { status: 'cancelled' } });
-      else if (a === 'restore') await call({ action: 'sess_update', id, patch: { status: 'scheduled' } });
-      else if (a === 'free') await call({ action: 'sess_update', id, patch: { counts: !x.counts } });
-      else if (a === 'move') { const v = prompt('New date and time (YYYY-MM-DD HH:MM):', toLocal(x.starts_at)); if (!v) return; const t = new Date(v.replace(' ', 'T')); if (isNaN(t)) { alert('Invalid date.'); return; } await call({ action: 'sess_update', id, patch: { starts_at: t.toISOString(), status: x.status === 'cancelled' || x.status === 'postponed' ? 'scheduled' : x.status } }); }
-      else if (a === 'del') { if (!confirm('Delete this session and its attendance?')) return; await call({ action: 'sess_delete', id }); }
-      await load();
-    } catch (er) { alert(er.message); }
+  function calHtml() {
+    const [lo, hi] = weekBounds(), H = (hi - lo) * PX, days = []; for (let i = 0; i < 7; i++) { const d = new Date(weekStart); d.setDate(d.getDate() + i); days.push(d); }
+    const end = days[6], todayK = ymd(new Date()), now = new Date();
+    const lab = days[0].toLocaleDateString([], { day: 'numeric', month: 'short' }) + ' – ' + end.toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' });
+    const hours = []; for (let t = lo; t < hi; t += 60) hours.push(t);
+    const cols = days.map((d, i) => {
+      const k = ymd(d), items = allSess.filter(x => ymd(new Date(x.starts_at)) === k);
+      const blocks = items.map(x => {
+        const s = new Date(x.starts_at), a = s.getHours() * 60 + s.getMinutes(), [c, bg] = colorOf(x.class_name), mine = x.class_name === cls, canc = x.status === 'cancelled', held = x.status === 'held';
+        const style = `top:${(a - lo) * PX}px;height:${Math.max(18, x.minutes * PX - 2)}px;` + (canc ? 'background:#e5e7eb;color:#6b7280;border:1px solid #d1d5db;' : held ? `background:${c};color:#fff;border:1px solid ${c};` : `background:${bg};color:${c};border:1px solid ${c};border-left-width:4px;`) + (x.counts ? '' : 'border-style:dashed;') + (mine ? '' : 'opacity:.55;');
+        const e = new Date(s.getTime() + x.minutes * 60000);
+        return `<div class="cal-b" data-id="${x.id}" style="${style}"><div class="cal-t ${canc ? 'line-through' : ''}"><b>${esc(x.class_name)}</b><br>${hm(s)}–${hm(e)} &bull; ${x.minutes >= 60 && x.minutes % 60 === 0 ? x.minutes / 60 + 'h' : x.minutes + 'm'}${held ? ' &#10003;' : ''}${x.counts ? '' : ' free'}</div><div class="cal-h" title="Drag to change the duration"></div></div>`;
+      }).join('');
+      const nowLine = k === todayK ? `<div style="position:absolute;left:0;right:0;top:${(now.getHours() * 60 + now.getMinutes() - lo) * PX}px;border-top:2px solid #ef4444;z-index:2;pointer-events:none"></div>` : '';
+      return `<div class="cal-col" data-day="${i}" style="position:relative;height:${H}px;border-left:1px solid #e5e7eb;background:${k === todayK ? '#f5f3ff' : '#fff'};background-image:repeating-linear-gradient(to bottom,transparent 0,transparent ${60 * PX - 1}px,#eee ${60 * PX - 1}px,#eee ${60 * PX}px)">${nowLine}${blocks}</div>`;
+    }).join('');
+    const heads = days.map(d => `<div class="text-center py-1 text-xs ${ymd(d) === todayK ? 'font-bold text-indigo-700' : 'text-gray-600'}" style="position:sticky;top:0;z-index:5;background:#fff;border-left:1px solid #e5e7eb">${esc(d.toLocaleDateString([], { weekday: 'short' }))}<br><span class="text-sm ${ymd(d) === todayK ? 'bg-indigo-600 text-white rounded-full px-1.5' : 'text-gray-900 font-semibold'}">${d.getDate()}</span></div>`).join('');
+    const legend = classNames().map(c => `<span class="inline-flex items-center gap-1 text-xs"><span style="width:10px;height:10px;border-radius:3px;background:${colorOf(c)[0]};display:inline-block"></span>${esc(c)}</span>`).join(' ');
+    return `<div class="mb-6"><style>.cal-b{position:absolute;left:2px;right:2px;border-radius:8px;padding:2px 5px;font-size:11px;line-height:1.2;overflow:hidden;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;z-index:3}.cal-b.dr{z-index:20;box-shadow:0 6px 16px rgba(0,0,0,.25);cursor:grabbing}.cal-h{position:absolute;left:0;right:0;bottom:0;height:9px;cursor:ns-resize;background:linear-gradient(transparent,rgba(0,0,0,.18));touch-action:none}</style>
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-2"><h4 class="font-semibold text-gray-800">&#128467; Week calendar</h4>
+        <div class="flex flex-wrap items-center gap-2 text-sm"><button id="cal-prev" class="px-3 py-1 border rounded-lg bg-white">&#9664;</button><button id="cal-today" class="px-3 py-1 border rounded-lg bg-white">Today</button><button id="cal-next" class="px-3 py-1 border rounded-lg bg-white">&#9654;</button>
+          <span class="font-medium text-gray-800">${esc(lab)}</span><input id="cal-jump" type="date" class="border rounded-lg px-2 py-1 text-xs" value="${ymd(weekStart)}" title="Jump to a date"></div></div>
+      <div class="flex flex-wrap items-center gap-3 mb-2">${legend}<span class="text-xs text-gray-500">solid = done &bull; light = planned &bull; dashed = free</span></div>
+      <p class="text-xs text-gray-500 mb-2">Tap an empty slot to add a session (past weeks too). Drag a block to move it, pull its bottom edge to set how long it lasted. Tap a block to edit, cancel or take attendance.</p>
+      <div id="cal-scroll" class="overflow-auto border rounded-xl bg-white" style="max-height:62vh"><div style="display:grid;grid-template-columns:46px repeat(7,minmax(96px,1fr));min-width:760px">
+        <div style="position:sticky;top:0;z-index:5;background:#fff"></div>${heads}
+        <div style="position:relative;height:${H}px">${hours.map(t => `<div style="position:absolute;top:${(t - lo) * PX - 6}px;right:4px;font-size:10px;color:#9ca3af">${pad(t / 60)}:00</div>`).join('')}</div>${cols}</div></div></div>`;
   }
+  function wireCal() {
+    const sc = $('cal-scroll'); if (!sc) return;
+    $('cal-prev').onclick = () => { weekStart.setDate(weekStart.getDate() - 7); calTop = null; render(); };
+    $('cal-next').onclick = () => { weekStart.setDate(weekStart.getDate() + 7); calTop = null; render(); };
+    $('cal-today').onclick = () => { weekStart = mondayOf(new Date()); calTop = null; render(); };
+    $('cal-jump').onchange = e => { if (e.target.value) { weekStart = mondayOf(new Date(e.target.value + 'T00:00')); calTop = null; render(); } };
+    const [lo] = weekBounds(); let drag = null, suppress = false;
+    sc.addEventListener('pointerdown', e => {
+      const b = e.target.closest('.cal-b'); if (!b) return; const s = allSess.find(x => String(x.id) === b.dataset.id); if (!s) return;
+      drag = { s, b, mode: e.target.closest('.cal-h') ? 'resize' : 'move', sx: e.clientX, sy: e.clientY, moved: false, h0: b.offsetHeight };
+      try { b.setPointerCapture(e.pointerId); } catch (er) {} e.preventDefault();
+    });
+    sc.addEventListener('pointermove', e => {
+      if (!drag) return; const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
+      if (!drag.moved && Math.abs(dx) < 5 && Math.abs(dy) < 5) return; drag.moved = true;
+      if (drag.mode === 'move') { drag.b.classList.add('dr'); drag.b.style.transform = `translate(${dx}px,${dy}px)`; } else drag.b.style.height = Math.max(15 * PX, drag.h0 + dy) + 'px';
+    });
+    const finish = async e => {
+      if (!drag) return; const d = drag; drag = null; const dy = e.clientY - d.sy;
+      if (!d.moved) { openModal({ id: d.s.id }); return; }
+      suppress = true; setTimeout(() => suppress = false, 50);
+      if (d.mode === 'resize') { const mins = Math.max(15, Math.round((d.s.minutes + dy / PX) / 15) * 15); await updateSession(d.s, { minutes: mins }); return; }
+      const old = new Date(d.s.starts_at); let col = null; d.b.style.pointerEvents = 'none';
+      document.elementsFromPoint(e.clientX, e.clientY).forEach(el => { if (!col && el.classList && el.classList.contains('cal-col')) col = el; });
+      const dayIdx = col ? Number(col.dataset.day) : Math.round(((old.getTime() - weekStart.getTime()) / 86400000 - ((old.getHours() * 60 + old.getMinutes()) / 1440)));
+      const startMin = Math.max(0, Math.min(24 * 60 - 15, Math.round((old.getHours() * 60 + old.getMinutes() + dy / PX) / 15) * 15));
+      const nd = new Date(weekStart); nd.setDate(nd.getDate() + (col ? dayIdx : Math.max(0, Math.min(6, dayIdx)))); nd.setHours(0, startMin, 0, 0);
+      await updateSession(d.s, { starts_at: nd.toISOString() });
+    };
+    sc.addEventListener('pointerup', finish); sc.addEventListener('pointercancel', () => { if (drag) { drag = null; render(); } });
+    sc.addEventListener('click', e => {
+      if (suppress || e.target.closest('.cal-b')) return; const col = e.target.closest('.cal-col'); if (!col) return;
+      const r = col.getBoundingClientRect(), min = Math.max(0, Math.min(24 * 60 - 15, Math.floor((lo + (e.clientY - r.top) / PX) / 15) * 15));
+      const d = new Date(weekStart); d.setDate(d.getDate() + Number(col.dataset.day)); d.setHours(0, min, 0, 0); openModal({ start: d });
+    });
+  }
+  async function updateSession(s, patch) {
+    const before = { ...s }; Object.assign(s, patch); render();
+    try { await call({ action: 'sess_update', id: s.id, patch }); }
+    catch (e) { Object.assign(s, before); render(); alert('Could not save: ' + e.message); }
+  }
+
+  // ---- colour register (students x sessions) ----
+  const CYCLE = ['', 'present', 'late', 'absent', 'excused'];
+  const CELL = { present: ['P', 'bg-emerald-500 text-white'], late: ['L', 'bg-amber-400 text-white'], absent: ['A', 'bg-red-500 text-white'], excused: ['E', 'bg-sky-400 text-white'] };
+  const timers = {};
+  function amap() { const m = {}; (ov.attendance || []).forEach(a => { (m[a.student_id] = m[a.student_id] || {})[a.session_id] = a.status; }); return m; }
+  function stats(sid, map, sessions) {
+    let p = 0, l = 0, a = 0, e = 0, streak = 0, streakOn = true; const marked = [];
+    sessions.forEach(x => { const st = (map[sid] || {})[x.id]; if (!st) return; marked.push(st); if (st === 'present') p++; else if (st === 'late') l++; else if (st === 'absent') a++; else e++; });
+    for (let i = marked.length - 1; i >= 0 && streakOn; i--) { if (marked[i] === 'present' || marked[i] === 'late') streak++; else if (marked[i] === 'excused') continue; else streakOn = false; }
+    const tot = p + l + a, rate = tot ? Math.round((p + l) / tot * 100) : null, last4 = marked.filter(z => z !== 'excused').slice(-4), risk = last4.filter(z => z === 'absent').length >= 2;
+    return { p, l, a, e, rate, streak, risk };
+  }
+  function regHtml() {
+    const all = ov.sessions.slice().sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at));
+    if (!all.length) return '<div class="mb-6 rounded-lg border border-dashed p-4 text-gray-500">No sessions yet. Add sessions above to start the attendance register.</div>';
+    const cols = regAll ? all : all.slice(-16), map = amap(), now = new Date(), today = now.toDateString();
+    let studs = ov.students.map(s => ({ ...s, st: stats(s.id, map, all) }));
+    if (regSort === 'rate') studs.sort((a, b) => (a.st.rate == null ? 101 : a.st.rate) - (b.st.rate == null ? 101 : b.st.rate));
+    const chip = r => r == null ? '<span class="text-gray-400">-</span>' : `<span class="px-2 py-0.5 rounded-full text-xs font-bold ${r >= 90 ? 'bg-emerald-100 text-emerald-800' : r >= 75 ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-800'}">${r}%</span>`;
+    const head = cols.map(x => { const d = new Date(x.starts_at), isT = d.toDateString() === today, canc = x.status === 'cancelled';
+      return `<th class="px-0.5 pb-1 align-bottom bg-white" style="min-width:44px;position:sticky;top:0;z-index:5"><div class="text-center rounded-lg py-1 ${isT ? 'bg-indigo-100 ring-1 ring-indigo-400' : ''} ${canc ? 'opacity-40 line-through' : ''}" title="${esc(d.toLocaleString())}${x.counts ? '' : ' (free)'}">
+        <div class="text-[10px] uppercase text-gray-500">${esc(d.toLocaleDateString([], { weekday: 'short' }))}</div><div class="text-sm font-bold text-gray-800 leading-none">${d.getDate()}</div><div class="text-[10px] text-gray-500">${esc(d.toLocaleDateString([], { month: 'short' }))}</div>
+        ${canc ? '' : `<button data-fill="${x.id}" class="mt-0.5 text-[10px] text-indigo-600 hover:underline" title="Mark all empty as present">&#10003; all</button>`}</div></th>`; }).join('');
+    const rows = studs.map(s => `<tr><th class="sticky left-0 z-10 bg-white text-left font-medium py-0.5 whitespace-nowrap" style="left:0;width:150px;min-width:150px;max-width:150px"><div class="flex items-center gap-2" style="max-width:142px"><span class="truncate">${esc(s.name)}</span>${s.st.risk ? '<span title="2+ absences in the last 4 sessions" class="text-red-500">&#9888;</span>' : ''}${s.st.streak >= 3 ? `<span title="${s.st.streak} in a row" class="text-xs text-orange-500">&#128293;${s.st.streak}</span>` : ''}</div></th>
+      <td class="sticky z-10 bg-white px-2 text-center" style="left:150px">${chip(s.st.rate)}</td>
+      ${cols.map(x => { const st = (map[s.id] || {})[x.id] || '', c = CELL[st], canc = x.status === 'cancelled', fut = new Date(x.starts_at) > now && !st;
+        return `<td class="px-0.5 py-0.5"><button ${canc ? 'disabled' : ''} data-c="${esc(s.id)}|${x.id}" class="w-10 h-9 rounded-lg text-sm font-bold ${c ? c[1] + ' shadow-sm' : canc ? 'bg-gray-200' : fut ? 'bg-gray-50 border border-dashed border-gray-200' : 'bg-gray-100 border border-dashed border-gray-300 text-gray-300'}">${c ? c[0] : (canc ? '' : '+')}</button></td>`; }).join('')}</tr>`).join('');
+    const foot = cols.map(x => { const n = ov.students.filter(s => { const st = (map[s.id] || {})[x.id]; return st === 'present' || st === 'late'; }).length, m = ov.students.filter(s => (map[s.id] || {})[x.id]).length; return `<td class="text-center text-[11px] text-gray-500 pt-1">${m ? n + '/' + ov.students.length : ''}</td>`; }).join('');
+    return `<div class="mb-6"><div class="flex flex-wrap items-center justify-between gap-2 mb-2"><h4 class="font-semibold text-gray-800">&#128203; Attendance register</h4>
+        <div class="flex flex-wrap items-center gap-2 text-xs">
+          ${Object.entries(CELL).map(([k, v]) => `<span class="inline-flex items-center gap-1"><span class="w-4 h-4 rounded ${v[1]} text-[10px] flex items-center justify-center">${v[0]}</span>${ST[k][0]}</span>`).join('')}
+          <button id="reg-sort" class="px-2 py-1 border rounded-lg bg-white">Sort: ${regSort === 'name' ? 'name' : 'lowest attendance first'}</button>
+          ${all.length > 16 ? `<button id="reg-all" class="px-2 py-1 border rounded-lg bg-white">${regAll ? 'Last 16 only' : 'Show all ' + all.length}</button>` : ''}
+          <button id="reg-print" class="px-2 py-1 border rounded-lg bg-white">&#128424; Print / PDF</button><button id="reg-xlsx" class="px-2 py-1 border rounded-lg bg-white">Excel</button></div></div>
+      <p class="text-xs text-gray-500 mb-2">Tap a square to change it: empty &rarr; Present &rarr; Late &rarr; Absent &rarr; Excused &rarr; empty. Everything saves by itself.</p>
+      <div id="reg-scroll" class="overflow-auto border rounded-xl bg-white p-2" style="max-height:70vh"><table class="border-separate" style="border-spacing:0"><thead><tr><th class="sticky z-20 bg-white text-left text-xs text-gray-500 font-medium pb-1" style="left:0;top:0;width:150px;min-width:150px">Student</th><th class="sticky z-20 bg-white text-xs text-gray-500 font-medium pb-1 px-2" style="left:150px;top:0">Rate</th>${head}</tr></thead>
+        <tbody>${rows || '<tr><td class="text-gray-500 py-2">No students in this class.</td></tr>'}</tbody><tfoot><tr><td></td><td></td>${foot}</tr></tfoot></table></div></div>`;
+  }
+  function setCell(sid, sessionId, status) {
+    ov.attendance = (ov.attendance || []).filter(a => !(a.student_id === sid && a.session_id === sessionId));
+    const stu = ov.students.find(s => s.id === sid), ses = ov.sessions.find(x => x.id === sessionId);
+    if (status) { ov.attendance.push({ session_id: sessionId, student_id: sid, student_name: stu ? stu.name : '', status }); if (ses && ses.status === 'scheduled') ses.status = 'held'; }
+    recompute(); regScroll = ($('reg-scroll') || {}).scrollLeft; render();
+    const key = sid + '|' + sessionId; clearTimeout(timers[key]);
+    timers[key] = setTimeout(async () => {
+      try { if (status) await call({ action: 'att_save', session_id: sessionId, items: [{ student_id: sid, student_name: stu ? stu.name : '', status }], mark_held: true }); else await call({ action: 'att_clear', session_id: sessionId, student_id: sid }); }
+      catch (e) { alert('Could not save: ' + e.message); load(); }
+    }, 450);
+  }
+  function wireReg() {
+    const w = $('reg-scroll'); if (!w) return;
+    w.onclick = async e => {
+      const f = e.target.closest('[data-fill]');
+      if (f) { const id = Number(f.dataset.fill), map = amap(), items = ov.students.filter(s => !(map[s.id] || {})[id]).map(s => ({ student_id: s.id, student_name: s.name, status: 'present' })); if (!items.length) return;
+        items.forEach(i => { ov.attendance.push({ session_id: id, student_id: i.student_id, student_name: i.student_name, status: 'present' }); }); const ses = ov.sessions.find(x => x.id === id); if (ses && ses.status === 'scheduled') ses.status = 'held';
+        recompute(); regScroll = w.scrollLeft; render(); try { await call({ action: 'att_save', session_id: id, items, mark_held: true }); } catch (er) { alert('Could not save: ' + er.message); load(); } return; }
+      const c = e.target.closest('[data-c]'); if (!c) return; const [sid, sess] = c.dataset.c.split('|'), cur = ((amap()[sid] || {})[Number(sess)]) || '';
+      setCell(sid, Number(sess), CYCLE[(CYCLE.indexOf(cur) + 1) % CYCLE.length]);
+    };
+    if ($('reg-sort')) $('reg-sort').onclick = () => { regSort = regSort === 'name' ? 'rate' : 'name'; regScroll = w.scrollLeft; render(); };
+    if ($('reg-all')) $('reg-all').onclick = () => { regAll = !regAll; regScroll = null; render(); };
+    $('reg-print').onclick = printReg; $('reg-xlsx').onclick = xlsxReg;
+  }
+  function gridRows() {
+    const all = ov.sessions.filter(x => x.status !== 'cancelled').sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at)), map = amap();
+    return { all, map };
+  }
+  function xlsxReg() {
+    const { all, map } = gridRows(), L = { present: 'P', late: 'L', absent: 'A', excused: 'E' };
+    const aoa = [['Student', 'Rate'].concat(all.map(x => new Date(x.starts_at).toLocaleDateString()))];
+    ov.students.forEach(s => { const st = stats(s.id, map, all); aoa.push([s.name, st.rate == null ? '' : st.rate + '%'].concat(all.map(x => L[(map[s.id] || {})[x.id]] || ''))); });
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), 'Register'); XLSX.writeFile(wb, 'attendance-' + cls.replace(/[^\w-]+/g, '_') + '.xlsx');
+  }
+  function printReg() {
+    const { all, map } = gridRows(), col = { present: '#10b981', late: '#fbbf24', absent: '#ef4444', excused: '#38bdf8' }, L = { present: 'P', late: 'L', absent: 'A', excused: 'E' };
+    const th = all.map(x => { const d = new Date(x.starts_at); return `<th>${d.getDate()}/${d.getMonth() + 1}</th>`; }).join('');
+    const tr = ov.students.map(s => { const st = stats(s.id, map, all); return `<tr><td class="n">${esc(s.name)}</td><td>${st.rate == null ? '-' : st.rate + '%'}</td>${all.map(x => { const v = (map[s.id] || {})[x.id]; return `<td style="background:${v ? col[v] : '#fff'};color:#fff;font-weight:bold">${v ? L[v] : ''}</td>`; }).join('')}</tr>`; }).join('');
+    const w = window.open('', '_blank'); if (!w) { alert('Allow pop-ups to print.'); return; }
+    w.document.write(`<!doctype html><title>Attendance ${esc(cls)}</title><style>body{font-family:Arial,sans-serif;padding:16px}table{border-collapse:collapse;font-size:12px}td,th{border:1px solid #ccc;padding:4px 6px;text-align:center;-webkit-print-color-adjust:exact;print-color-adjust:exact}td.n{text-align:left;white-space:nowrap}h2{margin:0 0 8px}.k span{display:inline-block;margin-right:12px}</style><h2>Attendance &mdash; ${esc(cls)}</h2><div class="k" style="margin-bottom:8px;font-size:12px"><span style="color:#10b981">&#9632; P present</span><span style="color:#d97706">&#9632; L late</span><span style="color:#ef4444">&#9632; A absent</span><span style="color:#0284c7">&#9632; E excused</span> &nbsp; ${new Date().toLocaleDateString()}</div><table><tr><th>Student</th><th>Rate</th>${th}</tr>${tr}</table><script>setTimeout(function(){print()},300)<\/script>`);
+    w.document.close();
+  }
+
+  // ---------- session modal (create / edit, with attendance) ----------
+  async function openModal(o) {
+    let s = null;
+    if (o.id != null) { s = allSess.find(x => x.id === o.id); if (!s) return; if (s.class_name !== cls) { cls = s.class_name; ov = null; render(); await load(); } }
+    const old = $('sm-ov'); if (old) old.remove();
+    const start = s ? new Date(s.starts_at) : o.start, isNew = !s, lastMin = Number(localStorage.getItem('sess_last_min')) || 60;
+    const mins = s ? s.minutes : lastMin, st0 = s ? s.status : (start < new Date() ? 'held' : 'scheduled');
+    const ovl = document.createElement('div'); ovl.id = 'sm-ov'; ovl.className = 'fixed inset-0 z-50 bg-black/50 flex items-start justify-center p-3 overflow-y-auto';
+    ovl.innerHTML = `<div class="bg-white rounded-2xl shadow-xl w-full max-w-md my-4 p-5 text-sm">
+      <div class="flex justify-between items-center mb-3"><h3 class="text-lg font-bold">${isNew ? 'New session' : 'Edit session'}</h3><button id="sm-x" class="text-2xl leading-none text-gray-500">&times;</button></div>
+      <div class="space-y-3">
+        <label class="block"><span class="text-xs font-medium text-gray-600">Class</span><select id="sm-class" class="border rounded px-2 py-1.5 w-full bg-white" ${isNew ? '' : 'disabled'}>${classNames().map(c => `<option ${c === (s ? s.class_name : cls) ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
+        <div class="grid grid-cols-2 gap-3"><label class="block"><span class="text-xs font-medium text-gray-600">Date</span><input id="sm-date" type="date" class="border rounded px-2 py-1.5 w-full" value="${ymd(start)}"></label>
+          <label class="block"><span class="text-xs font-medium text-gray-600">Start time</span><input id="sm-time" type="time" step="300" class="border rounded px-2 py-1.5 w-full" value="${hm(start)}"></label></div>
+        <div><span class="text-xs font-medium text-gray-600">How long (minutes)</span><div class="flex flex-wrap items-center gap-2 mt-1"><input id="sm-min" type="number" min="5" step="5" class="border rounded px-2 py-1.5 w-24" value="${mins}">
+          ${[30, 45, 60, 90, 120].map(m => `<button type="button" data-m="${m}" class="px-2.5 py-1 border rounded-full bg-white text-xs">${m >= 60 && m % 60 === 0 ? m / 60 + 'h' : m + 'm'}</button>`).join('')}</div></div>
+        <div class="grid grid-cols-2 gap-3"><label class="block"><span class="text-xs font-medium text-gray-600">Status</span><select id="sm-status" class="border rounded px-2 py-1.5 w-full bg-white"><option value="scheduled" ${st0 === 'scheduled' ? 'selected' : ''}>Planned</option><option value="held" ${st0 === 'held' ? 'selected' : ''}>Done</option><option value="cancelled" ${st0 === 'cancelled' ? 'selected' : ''}>Cancelled</option></select></label>
+          <label class="flex items-end gap-2 pb-2"><input id="sm-counts" type="checkbox" ${!s || s.counts ? 'checked' : ''}> Counts in the program</label></div>
+        <label class="block"><span class="text-xs font-medium text-gray-600">Note</span><input id="sm-note" class="border rounded px-2 py-1.5 w-full" value="${esc(s ? s.note : '')}"></label>
+        ${isNew ? '<label class="block"><span class="text-xs font-medium text-gray-600">Repeat weekly for more weeks</span><input id="sm-rep" type="number" min="0" max="52" class="border rounded px-2 py-1.5 w-24" value="0"></label>' : ''}
+        ${!isNew ? '<div><span class="text-xs font-medium text-gray-600">Attendance</span><div id="sm-att" class="mt-1 space-y-1"></div></div>' : ''}
+      </div>
+      <div class="flex flex-wrap items-center gap-2 mt-4"><button id="sm-save" class="bg-indigo-600 text-white px-4 py-2 rounded-lg font-medium">${isNew ? 'Add' : 'Save'}</button>${!isNew ? '<button id="sm-del" class="px-3 py-2 text-red-600 border border-red-200 rounded-lg">Delete</button>' : ''}<span id="sm-out" class="text-sm text-red-600"></span></div></div>`;
+    document.body.appendChild(ovl);
+    const close = () => ovl.remove(); $('sm-x').onclick = close; ovl.addEventListener('pointerdown', e => { if (e.target === ovl) close(); });
+    ovl.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { $('sm-min').value = b.dataset.m; });
+    const renderAtt = () => {
+      const box = $('sm-att'); if (!box) return; const map = {}; (ov.attendance || []).filter(a => a.session_id === s.id).forEach(a => map[a.student_id] = a.status);
+      box.innerHTML = ov.students.map(x => `<div class="flex flex-wrap items-center gap-1.5"><span class="w-32 truncate">${esc(x.name)}</span>${Object.entries(CELL).map(([k, v]) => `<button type="button" data-s="${esc(x.id)}" data-k="${k}" class="text-xs px-2.5 py-1 rounded-full border ${map[x.id] === k ? v[1] + ' border-transparent font-semibold' : 'bg-white text-gray-500'}">${ST[k][0]}</button>`).join('')}</div>`).join('') || '<span class="text-gray-500">No students in this class.</span>';
+      box.onclick = e => { const b = e.target.closest('button[data-s]'); if (!b) return; const cur = map[b.dataset.s] || ''; setCell(b.dataset.s, s.id, cur === b.dataset.k ? '' : b.dataset.k); $('sm-status').value = s.status; renderAtt(); };
+    };
+    if (!isNew) renderAtt();
+    $('sm-save').onclick = async () => {
+      const out = $('sm-out'), d = $('sm-date').value, t = $('sm-time').value, m = Math.max(5, Number($('sm-min').value) || 60);
+      if (!d || !t) { out.textContent = 'Pick a date and a time.'; return; }
+      const at = new Date(d + 'T' + t); localStorage.setItem('sess_last_min', String(m));
+      try {
+        if (isNew) { const n = 1 + Math.max(0, Math.min(52, Number($('sm-rep').value) || 0)), rows = []; for (let i = 0; i < n; i++) { const x = new Date(at); x.setDate(x.getDate() + 7 * i); rows.push({ starts_at: x.toISOString(), minutes: m, counts: $('sm-counts').checked, note: $('sm-note').value, status: i === 0 ? $('sm-status').value : (x < new Date() ? 'held' : 'scheduled') }); }
+          await call({ action: 'sess_create', class_name: $('sm-class').value, rows }); if ($('sm-class').value !== cls) { cls = $('sm-class').value; ov = null; } }
+        else await call({ action: 'sess_update', id: s.id, patch: { starts_at: at.toISOString(), minutes: m, status: $('sm-status').value, counts: $('sm-counts').checked, note: $('sm-note').value } });
+        close(); await load();
+      } catch (e) { out.textContent = e.message; }
+    };
+    if ($('sm-del')) $('sm-del').onclick = async () => { if (!confirm('Delete this session and its attendance?')) return; try { await call({ action: 'sess_delete', id: s.id }); close(); await load(); } catch (e) { $('sm-out').textContent = e.message; } };
+  }
+
+  // ---------- programs ----------
+  function addMonths(d, n) { const x = new Date(d); x.setMonth(x.getMonth() + n); x.setDate(x.getDate() - 1); return x; }
+  function progHtml() {
+    const list = myProgs().sort((a, b) => b.start_date.localeCompare(a.start_date)), sess = allSess;
+    const cards = list.map(p => { const used = progUsed(p, sess), q = Number(p.quantity), pct = q ? Math.min(100, Math.round(used / q * 100)) : 0, over = used > q, day = ymd(new Date()), active = p.start_date <= day && day <= p.end_date;
+      return `<div class="border rounded-lg p-3 bg-white"><div class="flex flex-wrap justify-between gap-2"><div><b>${esc(p.name || 'Program')}</b> ${active ? '<span class="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">active</span>' : p.end_date < day ? '<span class="text-xs px-2 py-0.5 rounded-full bg-gray-200 text-gray-600">finished</span>' : '<span class="text-xs px-2 py-0.5 rounded-full bg-sky-100 text-sky-800">upcoming</span>'}
+        <div class="text-xs text-gray-500">${esc(p.start_date)} &rarr; ${esc(p.end_date)} &bull; ${fmtN(q)} ${p.unit}${Number(p.price) ? ' &bull; ' + fmtN(Number(p.price)) + ' ' + esc(p.currency) : ''}${p.note ? ' &bull; ' + esc(p.note) : ''}</div></div>
+        <div class="flex gap-3 text-sm"><button data-pe="${p.id}" class="text-indigo-600 hover:underline">Edit</button><button data-pd="${p.id}" class="text-red-500 hover:underline">Delete</button></div></div>
+        <div class="h-2 bg-gray-100 rounded-full mt-2 overflow-hidden"><div class="h-2 ${over ? 'bg-red-500' : 'bg-indigo-500'}" style="width:${pct}%"></div></div>
+        <div class="text-xs text-gray-600 mt-1">${fmtN(used)} of ${fmtN(q)} ${p.unit} used &bull; ${over ? 'over by ' + fmtN(used - q) : fmtN(q - used) + ' left'}</div></div>`; }).join('');
+    const f = progForm;
+    const form = !f ? '' : `<div class="border rounded-lg p-4 bg-indigo-50/40 space-y-3 mt-3"><h5 class="font-semibold">${f.id ? 'Edit program' : 'New program for ' + esc(cls)}</h5>
+      <div class="grid sm:grid-cols-2 gap-3"><label class="block"><span class="text-xs font-medium text-gray-600">Name</span><input id="pg-name" class="border rounded px-2 py-1.5 w-full" value="${esc(f.name)}" placeholder="e.g. 3-month intensive"></label>
+        <label class="block"><span class="text-xs font-medium text-gray-600">Start date</span><input id="pg-start" type="date" class="border rounded px-2 py-1.5 w-full" value="${esc(f.start)}"></label></div>
+      <div><span class="text-xs font-medium text-gray-600">Length</span><div class="flex flex-wrap items-center gap-2 mt-1">${[1, 2, 3, 6, 12].map(n => `<button type="button" data-pm="${n}" class="px-3 py-1 border rounded-full bg-white text-xs">${n} month${n > 1 ? 's' : ''}</button>`).join('')}<span class="text-xs text-gray-500 ml-1">ends</span><input id="pg-end" type="date" class="border rounded px-2 py-1 text-xs" value="${esc(f.end)}"></div></div>
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3"><label class="block"><span class="text-xs font-medium text-gray-600">Sold as</span><select id="pg-unit" class="border rounded px-2 py-1.5 w-full bg-white"><option value="hours" ${f.unit === 'hours' ? 'selected' : ''}>Hours</option><option value="sessions" ${f.unit === 'sessions' ? 'selected' : ''}>Sessions</option></select></label>
+        <label class="block"><span class="text-xs font-medium text-gray-600">How many</span><input id="pg-qty" type="number" min="0" step="0.5" class="border rounded px-2 py-1.5 w-full" value="${esc(f.quantity)}"></label>
+        <label class="block"><span class="text-xs font-medium text-gray-600">Price (optional)</span><input id="pg-price" type="number" min="0" class="border rounded px-2 py-1.5 w-full" value="${esc(f.price)}"></label>
+        <label class="block"><span class="text-xs font-medium text-gray-600">Currency</span><input id="pg-cur" class="border rounded px-2 py-1.5 w-full" value="${esc(f.currency)}" placeholder="DA"></label></div>
+      <label class="block"><span class="text-xs font-medium text-gray-600">Note</span><input id="pg-note" class="border rounded px-2 py-1.5 w-full" value="${esc(f.note)}"></label>
+      ${f.id ? '' : `<div class="rounded-lg bg-white border p-3"><label class="font-medium"><input id="pg-auto" type="checkbox" ${f.auto ? 'checked' : ''}> Also fill the calendar with this program's sessions</label>
+        <div class="mt-2 space-y-2"><div class="flex flex-wrap gap-3">${DAYS.map(([n, l]) => `<label><input type="checkbox" class="pg-day" value="${n}" ${f.days.includes(n) ? 'checked' : ''}> ${l}</label>`).join('')}</div>
+        <div class="flex flex-wrap items-center gap-3"><label>Time <input id="pg-time" type="time" class="border rounded px-2 py-1" value="${esc(f.time)}"></label><label>Minutes <input id="pg-min" type="number" min="5" step="5" class="border rounded px-2 py-1 w-20" value="${esc(f.minutes)}"></label><label><input id="pg-past" type="checkbox" ${f.past ? 'checked' : ''}> Mark past dates as done</label></div>
+        <p class="text-xs text-gray-500">Sessions are created week by week from the start date until the hours/sessions run out or the end date is reached. You can drag any of them afterwards.</p></div></div>`}
+      <div><button id="pg-save" class="bg-indigo-600 text-white px-4 py-1.5 rounded-lg">${f.id ? 'Save program' : 'Create program'}</button><button id="pg-cancel" class="ml-2 px-3 py-1.5 border rounded-lg bg-white">Cancel</button><span id="pg-out" class="ml-2 text-sm text-red-600"></span></div></div>`;
+    return `<div class="mb-6"><div class="flex flex-wrap items-center justify-between gap-2 mb-2"><h4 class="font-semibold text-gray-800">&#127919; Programs &mdash; ${esc(cls)}</h4><button id="pg-new" class="px-3 py-1.5 text-sm rounded-lg bg-indigo-600 text-white">+ New program</button></div>
+      <div class="space-y-2">${cards || '<div class="text-gray-500 text-sm">No program yet. A program is what you sold: e.g. 24 hours over 3 months.</div>'}</div>${form}</div>`;
+  }
+  function newForm() { const t = new Date(); return { name: '', start: ymd(t), end: ymd(addMonths(t, 3)), unit: 'hours', quantity: '', price: '', currency: '', note: '', auto: false, days: [], time: '18:00', minutes: Number(localStorage.getItem('sess_last_min')) || 60, past: true }; }
+  function wireProg() {
+    if ($('pg-new')) $('pg-new').onclick = () => { progForm = newForm(); render(); };
+    const root = $('sess-root');
+    root.querySelectorAll('[data-pe]').forEach(b => b.onclick = () => { const p = programs.find(x => String(x.id) === b.dataset.pe); progForm = { id: p.id, name: p.name, start: p.start_date, end: p.end_date, unit: p.unit, quantity: p.quantity, price: p.price || '', currency: p.currency, note: p.note, days: [] }; render(); });
+    root.querySelectorAll('[data-pd]').forEach(b => b.onclick = async () => { if (!confirm('Delete this program? (sessions stay)')) return; try { await call({ action: 'prog_delete', id: b.dataset.pd }); await load(); } catch (e) { alert(e.message); } });
+    if (!progForm) return;
+    root.querySelectorAll('[data-pm]').forEach(b => b.onclick = () => { const s = $('pg-start').value; if (!s) return; $('pg-end').value = ymd(addMonths(new Date(s + 'T00:00'), Number(b.dataset.pm))); });
+    $('pg-cancel').onclick = () => { progForm = null; render(); };
+    $('pg-save').onclick = async () => {
+      const out = $('pg-out'), q = Number($('pg-qty').value) || 0, start = $('pg-start').value, end = $('pg-end').value, unit = $('pg-unit').value;
+      if (!start || !end || end < start) { out.textContent = 'Check the start and end dates.'; return; }
+      if (!q) { out.textContent = 'Enter how many ' + unit + ' were sold.'; return; }
+      try {
+        const r = await call({ action: 'prog_save', id: progForm.id, class_name: cls, name: $('pg-name').value.trim(), unit, quantity: q, start_date: start, end_date: end, price: $('pg-price').value, currency: $('pg-cur').value.trim(), note: $('pg-note').value });
+        if (!progForm.id && $('pg-auto') && $('pg-auto').checked) {
+          const days = [...document.querySelectorAll('.pg-day')].filter(x => x.checked).map(x => Number(x.value)), time = $('pg-time').value || '18:00', mins = Math.max(5, Number($('pg-min').value) || 60), past = $('pg-past').checked;
+          if (!days.length) { out.textContent = 'Program saved. Tick the weekdays to plan sessions.'; await load(); return; }
+          const rows = []; let total = 0; const d = new Date(start + 'T' + time), last = new Date(end + 'T23:59');
+          for (let i = 0; i < 800; i++) { const x = new Date(d); x.setDate(d.getDate() + i); if (x > last) break; if (!days.includes(x.getDay())) continue;
+            const add = unit === 'hours' ? mins / 60 : 1; if (total + add > q + 1e-9) break; total += add; rows.push({ starts_at: x.toISOString(), minutes: mins, status: past && x < new Date() ? 'held' : 'scheduled' }); }
+          if (rows.length) { for (let i = 0; i < rows.length; i += 300) await call({ action: 'sess_create', class_name: cls, rows: rows.slice(i, i + 300) }); localStorage.setItem('sess_last_min', String(mins)); }
+        }
+        progForm = null; await load();
+      } catch (e) { out.textContent = e.message; }
+    };
+  }
+
+  // ---------- month-end report ----------
+  function monthsList() {
+    const set = new Set([ymd(new Date()).slice(0, 7)]); allSess.forEach(x => set.add(localDay(x.starts_at).slice(0, 7))); programs.forEach(p => { set.add(p.start_date.slice(0, 7)); });
+    return [...set].sort().reverse().slice(0, 24);
+  }
+  function monthRows(ym) {
+    const last = ymd(new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 0));
+    return classNames().map(c => {
+      const ss = allSess.filter(x => x.class_name === c && localDay(x.starts_at).slice(0, 7) === ym), held = ss.filter(x => x.status === 'held'), cnt = held.filter(x => x.counts), free = held.filter(x => !x.counts);
+      const progs = programs.filter(p => p.class_name === c && p.start_date <= last && p.end_date >= ym + '-01'); let earned = 0, cur = '', txt = [];
+      progs.forEach(p => { const units = progSessions(p, allSess).filter(x => localDay(x.starts_at).slice(0, 7) === ym).reduce((a, x) => a + (p.unit === 'hours' ? x.minutes / 60 : 1), 0); if (Number(p.price) && Number(p.quantity)) { earned += units * Number(p.price) / Number(p.quantity); cur = cur || p.currency; } txt.push((p.name || 'Program') + ': ' + fmtN(progUsed(p, allSess, last)) + '/' + fmtN(Number(p.quantity)) + ' ' + p.unit); });
+      return { c, sessions: cnt.length, hours: cnt.reduce((a, x) => a + x.minutes, 0) / 60, freeH: free.reduce((a, x) => a + x.minutes, 0) / 60, cancelled: ss.filter(x => x.status === 'cancelled').length, prog: txt.join('; '), earned, cur };
+    }).filter(r => r.sessions || r.freeH || r.cancelled || r.prog);
+  }
+  function monthHtml() {
+    const ms = monthsList(); if (!monthSel || !ms.includes(monthSel)) monthSel = ms[0];
+    const rows = monthRows(monthSel), tot = rows.reduce((a, r) => ({ s: a.s + r.sessions, h: a.h + r.hours, f: a.f + r.freeH, c: a.c + r.cancelled, e: a.e + r.earned, cur: a.cur || r.cur }), { s: 0, h: 0, f: 0, c: 0, e: 0, cur: '' });
+    return `<div class="mb-6"><div class="flex flex-wrap items-center justify-between gap-2 mb-2"><h4 class="font-semibold text-gray-800">&#128202; Month-end report</h4><div class="flex items-center gap-2"><select id="mo-sel" class="border rounded-lg px-2 py-1 text-sm bg-white">${ms.map(m => `<option value="${m}" ${m === monthSel ? 'selected' : ''}>${esc(new Date(m + '-01T00:00').toLocaleDateString([], { month: 'long', year: 'numeric' }))}</option>`).join('')}</select><button id="mo-xlsx" class="px-2 py-1 border rounded-lg bg-white text-xs">Excel</button></div></div>
+      <div class="overflow-x-auto border rounded-xl bg-white"><table class="w-full text-sm"><thead><tr class="text-left text-xs text-gray-500 bg-gray-50"><th class="p-2">Class</th><th class="p-2">Sessions</th><th class="p-2">Hours</th><th class="p-2">Free hours</th><th class="p-2">Cancelled</th><th class="p-2">Program progress</th><th class="p-2">Earned (est.)</th></tr></thead>
+      <tbody>${rows.map(r => `<tr class="border-t"><td class="p-2 font-medium">${esc(r.c)}</td><td class="p-2">${r.sessions}</td><td class="p-2">${fmtN(r.hours)}</td><td class="p-2">${fmtN(r.freeH)}</td><td class="p-2">${r.cancelled}</td><td class="p-2 text-xs text-gray-600">${esc(r.prog) || '-'}</td><td class="p-2">${r.earned ? fmtN(r.earned) + ' ' + esc(r.cur) : '-'}</td></tr>`).join('') || '<tr><td colspan="7" class="p-3 text-gray-500">Nothing recorded in this month.</td></tr>'}
+      ${rows.length ? `<tr class="border-t font-bold bg-gray-50"><td class="p-2">Total</td><td class="p-2">${tot.s}</td><td class="p-2">${fmtN(tot.h)}</td><td class="p-2">${fmtN(tot.f)}</td><td class="p-2">${tot.c}</td><td></td><td class="p-2">${tot.e ? fmtN(tot.e) + ' ' + esc(tot.cur) : '-'}</td></tr>` : ''}</tbody></table></div>
+      <p class="text-xs text-gray-500 mt-1">Only sessions marked Done are counted. Earned = price &divide; quantity &times; hours (or sessions) delivered that month, for each program.</p></div>`;
+  }
+  function wireMonth() {
+    if ($('mo-sel')) $('mo-sel').onchange = e => { monthSel = e.target.value; render(); };
+    if ($('mo-xlsx')) $('mo-xlsx').onclick = () => {
+      const rows = monthRows(monthSel), aoa = [['Class', 'Sessions', 'Hours', 'Free hours', 'Cancelled', 'Program progress', 'Earned (est.)', 'Currency']].concat(rows.map(r => [r.c, r.sessions, Math.round(r.hours * 10) / 10, Math.round(r.freeH * 10) / 10, r.cancelled, r.prog, Math.round(r.earned), r.cur]));
+      const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), monthSel); XLSX.writeFile(wb, 'month-report-' + monthSel + '.xlsx');
+    };
+  }
+
   async function load() {
-    try { ov = await call({ action: 'sess_overview', class_name: cls, tz_offset: new Date().getTimezoneOffset() }); render(); }
-    catch (e) { $('sess-root').innerHTML = '<span class="text-red-600">' + esc(e.message) + '</span>'; }
+    try {
+      const a = await call({ action: 'sess_all' }); allSess = a.sessions || []; programs = a.programs || []; plans = a.plans || [];
+      ov = await call({ action: 'sess_overview', class_name: cls, tz_offset: new Date().getTimezoneOffset() }); ov.sessions = mySess(); render();
+    } catch (e) { $('sess-root').innerHTML = '<span class="text-red-600">' + esc(e.message) + '</span>'; }
   }
-  window.sessOpen = function () { ov = null; openAtt = null; render(); if (cls) load(); };
+  window.sessOpen = function () { ov = null; progForm = null; render(); if (cls) load(); };
 })();
 
 // ---------- Student: my attendance ----------
@@ -6820,7 +7076,7 @@ function renderLiveEx() {
     const sm = data.summary, now = Date.now(), pct = sm.left != null && sm.total ? Math.round(sm.used / sm.total * 100) : 0;
     const mine = data.sessions.filter(x => x.mine), c = k => mine.filter(x => x.mine === k).length;
     const head = `<div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-      ${sm.left != null ? `<div class="text-sm text-gray-500">${sm.plan_type === 'monthly' ? 'Sessions left this month' : 'Sessions left'}</div><div class="text-4xl font-bold text-indigo-700">${sm.left}<span class="text-base font-medium text-gray-400"> / ${sm.total}</span></div>
+      ${sm.left != null ? `<div class="text-sm text-gray-500">${sm.plan_type === 'program' ? (sm.unit === 'hours' ? 'Hours left' : 'Sessions left') + (sm.program_name ? ' &middot; ' + esc(sm.program_name) : '') : sm.plan_type === 'monthly' ? 'Sessions left this month' : 'Sessions left'}</div><div class="text-4xl font-bold text-indigo-700">${sm.left}<span class="text-base font-medium text-gray-400"> / ${sm.total}${sm.unit === 'hours' ? ' h' : ''}</span></div>${sm.plan_type === 'program' && sm.end_date ? `<div class="text-xs text-gray-500 mt-1">Program ends ${esc(new Date(sm.end_date + 'T00:00').toLocaleDateString([], { day: 'numeric', month: 'short', year: 'numeric' }))}${sm.days_left >= 0 ? ' (' + sm.days_left + ' days left)' : ''}</div>` : ''}
         <div class="h-2 bg-gray-100 rounded-full mt-3 overflow-hidden"><div class="h-2 bg-indigo-500" style="width:${pct}%"></div></div>` : `<div class="text-sm text-gray-500">Sessions done</div><div class="text-4xl font-bold text-indigo-700">${sm.held_all}</div>`}
       <div class="flex flex-wrap gap-2 mt-4 text-xs">${Object.entries(LAB).map(([k, v]) => `<span class="px-2.5 py-1 rounded-full ${v[1]}">${v[0]}: <b>${c(k)}</b></span>`).join('')}</div>${data.plan.note ? `<p class="text-sm text-gray-600 mt-3">${esc(data.plan.note)}</p>` : ''}</div>`;
     const up = data.sessions.filter(x => x.status === 'scheduled' && new Date(x.starts_at) >= now).slice(0, 3);
