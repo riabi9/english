@@ -904,9 +904,54 @@
             `).join('');
         }
 
+        const exSel = new Set();
+        function exHwBar() {
+            let bar = document.getElementById('ex-hw-bar');
+            if (!bar) { document.getElementById('admin-exercises-list').insertAdjacentHTML('beforebegin', '<div id="ex-hw-bar" class="flex flex-wrap items-center gap-3 mb-2 p-2 rounded-lg bg-indigo-50 border border-indigo-100 text-sm"><label class="flex items-center gap-1"><input type="checkbox" id="ex-sel-all" class="w-4 h-4"> Select shown</label><span id="ex-sel-n" class="text-gray-600"></span><button id="ex-hw-go" class="ml-auto px-3 py-1.5 rounded-lg bg-indigo-600 text-white font-medium disabled:opacity-40">Assign as homework</button></div>'); bar = document.getElementById('ex-hw-bar');
+                document.getElementById('ex-hw-go').onclick = () => window.openAssignHw([...exSel]);
+                document.getElementById('ex-sel-all').onchange = e => { poolList('exercise', adminExercises).forEach(x => e.target.checked ? exSel.add(String(x.id)) : exSel.delete(String(x.id))); renderAdminExercises(); };
+                document.getElementById('admin-exercises-list').addEventListener('change', e => { const c = e.target.closest('.ex-sel'); if (!c) return; c.checked ? exSel.add(c.dataset.id) : exSel.delete(c.dataset.id); exHwBar(); });
+            }
+            document.getElementById('ex-sel-n').textContent = exSel.size ? exSel.size + ' selected' : 'Tick exercises to make a homework from them';
+            document.getElementById('ex-hw-go').disabled = !exSel.size;
+        }
+        window.openAssignHw = function (ids) {
+            ids = ids.map(String); if (!ids.length) return;
+            const exs = ids.map(id => adminExercises.find(e => String(e.id) === id)).filter(Boolean);
+            const old = document.getElementById('hw-assign-modal'); if (old) old.remove();
+            const d = document.createElement('div'); d.id = 'hw-assign-modal'; d.className = 'fixed inset-0 z-50 bg-black/50 flex items-start justify-center p-3 overflow-y-auto';
+            const tomorrow = new Date(Date.now() + 7 * 864e5), ds = tomorrow.getFullYear() + '-' + String(tomorrow.getMonth() + 1).padStart(2, '0') + '-' + String(tomorrow.getDate()).padStart(2, '0');
+            d.innerHTML = `<div class="bg-white rounded-2xl shadow-xl w-full max-w-md my-4 p-5 text-sm"><div class="flex justify-between items-center mb-2"><h3 class="text-lg font-bold">Assign as homework</h3><button id="ha-x" class="text-2xl leading-none text-gray-500">&times;</button></div>
+              <div class="rounded-lg bg-gray-50 border p-2 mb-3 max-h-28 overflow-y-auto">${exs.map((e, i) => `<div>${i + 1}. ${escapeHtml(e.title)}</div>`).join('')}</div>
+              <label class="block mb-3"><span class="text-xs font-medium text-gray-600">Homework title</span><input id="ha-title" class="border rounded px-2 py-1.5 w-full" value="${escapeHtml(exs.length === 1 ? exs[0].title : 'Homework')}"></label>
+              <div class="mb-3"><span class="text-xs font-medium text-gray-600">Give it to</span><div class="max-h-40 overflow-y-auto mt-1 space-y-1">${globalClasses.map(c => `<label class="flex items-center gap-2"><input type="checkbox" class="ha-cls w-4 h-4" value="${escapeHtml(c.name)}"> ${escapeHtml(clsLabel(c.name))}</label>`).join('')}</div></div>
+              <label class="block mb-3"><span class="text-xs font-medium text-gray-600">Due date</span><input id="ha-due" type="date" class="border rounded px-2 py-1.5" value="${ds}"></label>
+              <label class="block mb-3"><span class="text-xs font-medium text-gray-600">Instructions (optional)</span><textarea id="ha-ins" rows="2" class="border rounded px-2 py-1.5 w-full"></textarea></label>
+              <label class="flex items-center gap-2 mb-1"><input id="ha-notify" type="checkbox" class="w-4 h-4" checked> Send a notification to the students now</label>
+              <p class="text-xs text-gray-500 mb-3">One homework is created for each class you tick. The exercises stay single copies in your pool and are shared with those classes.</p>
+              <div><button id="ha-save" class="bg-indigo-600 text-white px-4 py-2 rounded-lg font-medium">Create homework</button><span id="ha-out" class="ml-2 text-red-600"></span></div></div>`;
+            document.body.appendChild(d); document.getElementById('ha-x').onclick = () => d.remove();
+            document.getElementById('ha-save').onclick = async () => {
+                const out = document.getElementById('ha-out'), title = document.getElementById('ha-title').value.trim(), classes = [...d.querySelectorAll('.ha-cls:checked')].map(i => i.value), due = document.getElementById('ha-due').value || null;
+                if (!title) { out.textContent = 'Enter a title.'; return; } if (!classes.length) { out.textContent = 'Tick at least one class.'; return; }
+                const btn = document.getElementById('ha-save'); btn.disabled = true; out.textContent = ''; let made = 0, notified = 0, problems = [];
+                for (const c of classes) {
+                    const payload = { title, target_class: c, instructions: document.getElementById('ha-ins').value.trim(), exercise_ids: ids, chatgpt_prompt: '', due_date: due };
+                    const { data, error } = await supabaseClient.from('portal_homework').insert([payload]).select('id');
+                    if (error || !data || !data.length) { problems.push(c + ': ' + (error ? error.message : 'not saved')); continue; }
+                    made++; await window.__ensureAssigned('exercise', ids, c);
+                    if (document.getElementById('ha-notify').checked) { try { await window.__adminCall({ action: 'save_reminder', kind: 'homework', item_id: String(data[0].id), class_name: c, send_at: new Date(Date.now() + 60000).toISOString(), exercise_ids: ids, only_pending: true, subject: '', message: '', repeat_days: [], tz_offset: new Date().getTimezoneOffset() }); notified++; } catch (e) { problems.push('notification for ' + c + ': ' + e.message); } }
+                }
+                btn.disabled = false;
+                if (made) { exSel.clear(); renderAdminExercises(); if (typeof fetchAdminHomework === 'function') fetchAdminHomework(); }
+                if (problems.length) { out.textContent = (made ? 'Created ' + made + '. ' : '') + problems.join(' | '); return; }
+                d.remove(); alert('Homework created for ' + made + ' class' + (made > 1 ? 'es' : '') + (notified ? ' and the notification is on its way (within a minute).' : '.'));
+            };
+        };
+
         function renderAdminExercises() {
             const list = document.getElementById('admin-exercises-list');
-            filterBar('exercise');
+            filterBar('exercise'); exHwBar();
             if (adminExercises.length === 0) {
                 list.innerHTML = '<li class="px-4 py-3 bg-white text-sm text-gray-500">No exercises yet.</li>';
                 return;
@@ -915,11 +960,13 @@
             if (!shown.length) { list.innerHTML = '<li class="px-4 py-3 bg-white text-sm text-gray-500">Nothing matches this filter.</li>'; return; }
             list.innerHTML = shown.map(ex => `
                 <li class="flex justify-between items-center px-4 py-3 gap-4 ${ex.is_hidden ? 'bg-gray-100' : 'bg-white'}">
-                    <div class="${ex.is_hidden ? 'opacity-60' : ''}">
+                    <input type="checkbox" class="ex-sel w-4 h-4 flex-shrink-0" data-id="${ex.id}" ${exSel.has(String(ex.id)) ? 'checked' : ''}>
+                    <div class="flex-1 ${ex.is_hidden ? 'opacity-60' : ''}">
                         <span class="font-medium">${escapeHtml(ex.title)}</span>${hiddenBadge(ex)}
                         <span class="block mt-1">${chipsHtml(ex)}</span><span class="block text-xs text-gray-500 mt-0.5">${(ex.questions || []).length} questions${describeSettings(ex.settings) ? ' &bull; ' + escapeHtml(describeSettings(ex.settings)) : ''}</span>
                     </div>
                     <div class="flex gap-4 flex-shrink-0">
+                        <button onclick="window.openAssignHw(['${ex.id}'])" class="text-emerald-700 text-sm font-medium hover:underline">Homework</button>
                         <button onclick="window.openShare('exercise', '${ex.id}')" class="text-sky-600 text-sm hover:underline">Assign</button>
                         ${visibilityButton('exercise', ex)}
                         <button onclick="window.adminEditExercise('${ex.id}')" class="text-indigo-600 text-sm hover:underline">Edit</button>
@@ -3292,6 +3339,23 @@ window.openChatGpt = async function (id) {
     await copyText(prompt);   // always copy too: the link may not pre-fill on every device
     const q = encodeURIComponent(prompt);
     window.open(q.length < 6000 ? 'https://chatgpt.com/?q=' + q : 'https://chatgpt.com/', '_blank', 'noopener');
+};
+
+
+// Items can be opened even when they are not in the class list (pool items, notifications, other devices)
+window.ensureExercise = async function (id) {
+    if (globalExercises.some(x => String(x.id) === String(id))) return true;
+    if (!isDbConnected) return false;
+    const { data, error } = await supabaseClient.from('portal_exercises').select('*').eq('id', id).maybeSingle();
+    if (error || !data || data.is_hidden) return false;
+    globalExercises.push(data); return true;
+};
+window.ensureLesson = async function (id) {
+    if (globalLessons.some(x => String(x.id) === String(id))) return true;
+    if (!isDbConnected) return false;
+    const { data, error } = await supabaseClient.from('portal_lessons').select('*').eq('id', id).maybeSingle();
+    if (error || !data || data.is_hidden) return false;
+    globalLessons.push(data); return true;
 };
 
 // ---- published board lessons (students: read-only revision) ----
@@ -6573,8 +6637,8 @@ function renderLiveEx() {
     const area = document.getElementById('student-content-area'); if (!area || area.offsetParent === null || !currentStudentClass) return;
     const [kind, ...rest] = v.split(':'), id = rest.join(':'); let done = false;
     try {
-      if (kind === 'exercise') { if (globalExercises.some(x => x.id == id)) { window.openExercise(id); done = true; } }
-      else if (kind === 'lesson') { if (globalLessons.some(x => x.id == id)) { window.switchStudentTab('lessons'); window.readLesson(id); done = true; } }
+      if (kind === 'exercise') { done = true; window.ensureExercise(id).then(ok => { if (ok) window.openExercise(id); else alert('This exercise is not available right now. Ask your teacher.'); }); }
+      else if (kind === 'lesson') { done = true; window.ensureLesson(id).then(ok => { if (ok) { window.switchStudentTab('lessons'); window.readLesson(id); } else alert('This lesson is not available right now. Ask your teacher.'); }); }
       else if (kind === 'homework') { if (typeof globalHomework !== 'undefined' && globalHomework.length) { window.switchStudentTab('homework'); done = true; } }
       else done = true;
     } catch (e) { done = true; }
@@ -6632,8 +6696,8 @@ function renderLiveEx() {
   window.msgAct = function (i, linkOnly) {
     const m = msgs[i]; if (!m) return;
     if (m.link_url && (linkOnly || m.kind === 'custom')) { window.open(m.link_url, '_blank', 'noopener'); return; }
-    if (m.kind === 'exercise') { if ((typeof globalExercises !== 'undefined' ? globalExercises : []).some(x => x.id == m.item_id)) window.openExercise(m.item_id); else alert('This exercise is not available any more.'); }
-    else if (m.kind === 'lesson') { window.switchStudentTab('lessons'); window.readLesson(m.item_id); }
+    if (m.kind === 'exercise') { window.ensureExercise(m.item_id).then(ok => { if (ok) window.openExercise(m.item_id); else alert('This exercise is not available right now. Ask your teacher.'); }); }
+    else if (m.kind === 'lesson') { window.ensureLesson(m.item_id).then(ok => { if (ok) { window.switchStudentTab('lessons'); window.readLesson(m.item_id); } else alert('This lesson is not available right now. Ask your teacher.'); }); }
     else if (m.kind === 'homework') window.switchStudentTab('homework');
   };
   async function load() {
@@ -7131,13 +7195,39 @@ function renderLiveEx() {
       else if (t.dataset && t.dataset.ledSt) { const x = byId(t.dataset.ledSt); if (x) updateSession(x, { status: t.value }); }
     };
   }
+
+  function deleteProgram(p) {
+    if (!p) return;
+    const rows = allSess.filter(x => x.class_name === p.class_name && localDay(x.starts_at) >= p.start_date && localDay(x.starts_at) <= p.end_date);
+    const done = rows.filter(x => x.status === 'held'), open = rows.filter(x => x.status !== 'held');
+    const old = $('pd-modal'); if (old) old.remove();
+    const d = document.createElement('div'); d.id = 'pd-modal'; d.className = 'fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4';
+    d.innerHTML = `<div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-5 text-sm"><h3 class="text-lg font-bold mb-1">Delete program</h3><p class="text-gray-600 mb-3"><b>${esc(p.name || 'Program')}</b> &mdash; ${esc(p.start_date)} &rarr; ${esc(p.end_date)}</p>
+      <div class="rounded-lg bg-gray-50 border p-3 mb-4 text-gray-700">${rows.length ? `It has <b>${rows.length}</b> session${rows.length > 1 ? 's' : ''}: <b>${open.length}</b> planned / cancelled and <b>${done.length}</b> marked done (with their attendance).` : 'It has no sessions.'}</div>
+      <div class="space-y-2">
+        ${rows.length ? `<button data-pd-act="all" class="w-full text-left px-4 py-3 rounded-lg border border-red-300 bg-red-50 hover:bg-red-100"><b class="text-red-700">Delete the program and all ${rows.length} sessions</b><span class="block text-xs text-gray-600">Including the done ones and their attendance. This cannot be undone.</span></button>` : ''}
+        ${open.length && done.length ? `<button data-pd-act="open" class="w-full text-left px-4 py-3 rounded-lg border hover:bg-gray-50"><b>Delete the program and only its ${open.length} planned / cancelled sessions</b><span class="block text-xs text-gray-600">Keeps the ${done.length} done sessions in your records.</span></button>` : ''}
+        <button data-pd-act="none" class="w-full text-left px-4 py-3 rounded-lg border hover:bg-gray-50"><b>Delete the program only</b><span class="block text-xs text-gray-600">All sessions stay on the calendar.</span></button>
+        <button data-pd-act="x" class="w-full px-4 py-2 text-gray-600">Cancel</button></div><p id="pd-out" class="text-red-600 text-sm mt-2"></p></div>`;
+    document.body.appendChild(d);
+    d.onclick = async e => {
+      const b = e.target.closest('[data-pd-act]'); if (!b) { if (e.target === d) d.remove(); return; }
+      const act = b.dataset.pdAct; if (act === 'x') { d.remove(); return; }
+      try {
+        const ids = act === 'all' ? rows.map(x => x.id) : act === 'open' ? open.map(x => x.id) : [];
+        if (ids.length) await call({ action: 'sess_delete_many', ids });
+        await call({ action: 'prog_delete', id: p.id });
+        allSess = allSess.filter(x => !ids.includes(x.id)); d.remove(); await load();
+      } catch (er) { $('pd-out').textContent = er.message; }
+    };
+  }
   function newForm() { const t = new Date(); return { name: '', start: ymd(t), end: ymd(addMonths(t, 3)), unit: 'hours', quantity: '', price: '', currency: '', note: '', auto: true, days: [], time: '18:00', minutes: Number(localStorage.getItem('sess_last_min')) || 60, past: true }; }
   function wireProg() {
     wireLedger();
     if ($('pg-new')) $('pg-new').onclick = () => { progForm = newForm(); render(); };
     const root = $('sess-root');
     root.querySelectorAll('[data-pe]').forEach(b => b.onclick = () => { const p = programs.find(x => String(x.id) === b.dataset.pe); progForm = { id: p.id, name: p.name, start: p.start_date, end: p.end_date, unit: p.unit, quantity: p.quantity, price: p.price || '', currency: p.currency, note: p.note, days: [] }; render(); });
-    root.querySelectorAll('[data-pd]').forEach(b => b.onclick = async () => { if (!confirm('Delete this program? (sessions stay)')) return; try { await call({ action: 'prog_delete', id: b.dataset.pd }); await load(); } catch (e) { alert(e.message); } });
+    root.querySelectorAll('[data-pd]').forEach(b => b.onclick = () => deleteProgram(programs.find(x => String(x.id) === b.dataset.pd)));
     if (!progForm) return;
     root.querySelectorAll('[data-pm]').forEach(b => b.onclick = () => { const s = $('pg-start').value; if (!s) return; $('pg-end').value = ymd(addMonths(new Date(s + 'T00:00'), Number(b.dataset.pm))); });
     $('pg-cancel').onclick = () => { progForm = null; render(); };
