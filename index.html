@@ -751,14 +751,19 @@
         // Students only get items that are not hidden. If the is_hidden column does not exist yet
         // (portal-setup.sql not re-run), fall back to the plain query so students still see everything.
         async function fetchStudentRows(table, className) {
-            const build = onlyVisible => {
+            const pooled = table === 'portal_lessons' || table === 'portal_exercises';
+            const build = (onlyVisible, shared) => {
                 let q = supabaseClient.from(table).select('*').order('created_at', { ascending: false });
-                if (className) q = q.eq('target_class', className);
+                if (className) q = shared ? q.contains('classes', [className]) : q.eq('target_class', className);
                 if (onlyVisible) q = q.eq('is_hidden', false);
                 return q;
             };
-            let res = await build(true);
-            if (res.error) res = await build(false);
+            const fetchOne = async shared => { let r = await build(true, shared); if (r.error) r = await build(false, shared); return r; };
+            let res = await fetchOne(false);
+            if (!res.error && pooled && className) {       // also the items shared with this class from the pool
+                const extra = await fetchOne(true);
+                if (!extra.error && extra.data) { const seen = new Set((res.data || []).map(r => String(r.id))); res = { data: (res.data || []).concat(extra.data.filter(r => !seen.has(String(r.id)))).sort((x, y) => String(y.created_at).localeCompare(String(x.created_at))), error: null }; }
+            }
             if (res.error || !res.data) return null;
             return res.data.filter(r => !r.is_hidden);
         }
@@ -792,8 +797,9 @@
         async function fetchAdminRows(table, cols, extraSets = [['is_hidden'], []]) {
             const run = c => supabaseClient.from(table).select(c).order('created_at', { ascending: false });
             let res;
-            for (const extra of extraSets) {            // richest column set first; older databases fall back
-                res = await run([cols, ...extra].join(', '));
+            const variants = cols.includes('classes') ? [cols, cols.replace(' classes,', '')] : [cols];
+            for (const c of variants) for (const extra of extraSets) {            // richest column set first; older databases fall back
+                res = await run([c, ...extra].join(', '));
                 if (!res.error) return res;
             }
             return res;
@@ -801,13 +807,13 @@
 
         async function fetchAdminLessons() {
             if (!isDbConnected) return;
-            const { data, error } = await fetchAdminRows('portal_lessons', 'id, title, target_class, created_at');
+            const { data, error } = await fetchAdminRows('portal_lessons', 'id, title, target_class, classes, created_at');
             if (!error && data) { adminLessons = data; renderAdminLessons(); }
         }
 
         async function fetchAdminExercises() {
             if (!isDbConnected) return;
-            const { data, error } = await fetchAdminRows('portal_exercises', 'id, title, target_class, questions, created_at', [['is_hidden', 'settings'], ['is_hidden'], []]);
+            const { data, error } = await fetchAdminRows('portal_exercises', 'id, title, target_class, classes, questions, created_at', [['is_hidden', 'settings'], ['is_hidden'], []]);
             if (!error && data) { adminExercises = data; renderAdminExercises(); if (window.refreshAttachLists) refreshAttachLists(); if (window.liveExRefreshList) liveExRefreshList(); }
         }
 
@@ -819,19 +825,77 @@
             return `<button onclick="window.adminToggleHidden('${kind}', '${item.id}')" class="text-amber-600 text-sm hover:underline">${item.is_hidden ? 'Show' : 'Hide'}</button>`;
         }
 
+
+        // ---- shared pool: every lesson / exercise lives once; classes only "tag" it ----
+        const itemClasses = it => [...new Set([it.target_class, ...(Array.isArray(it.classes) ? it.classes : [])].filter(Boolean))];
+        const inClass = (it, c) => itemClasses(it).includes(c);
+        window.__itemClasses = itemClasses; window.__inClass = inClass;
+        const poolFilter = { lesson: '', exercise: '' };
+        const clsLabel = n => { const c = globalClasses.find(x => x.name === n); return c && c.is_private ? '🔒 ' + (c.student_name || c.name) : n; };
+        function chipsHtml(it) {
+            const cl = itemClasses(it);
+            return cl.length ? cl.map(c => `<span class="inline-block text-[11px] font-medium bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-full px-2 py-0.5 mr-1">${escapeHtml(clsLabel(c))}</span>`).join('') : '<span class="inline-block text-[11px] font-medium bg-gray-100 text-gray-500 border border-gray-200 rounded-full px-2 py-0.5">Pool (not assigned)</span>';
+        }
+        function filterBar(kind) {
+            const id = 'pool-filter-' + kind, host = document.getElementById(kind === 'lesson' ? 'admin-lessons-list' : 'admin-exercises-list');
+            if (!host) return;
+            let bar = document.getElementById(id);
+            if (!bar) { host.insertAdjacentHTML('beforebegin', `<div id="${id}" class="flex flex-wrap items-center gap-2 mb-2 text-sm"><span class="text-gray-600">Show:</span><select class="border rounded-lg px-2 py-1 bg-white"></select><input type="search" placeholder="Search..." class="border rounded-lg px-2 py-1 flex-1 min-w-[120px]"></div>`); bar = document.getElementById(id);
+                bar.querySelector('select').onchange = e => { poolFilter[kind] = e.target.value; kind === 'lesson' ? renderAdminLessons() : renderAdminExercises(); };
+                bar.querySelector('input').oninput = e => { bar.dataset.q = e.target.value.toLowerCase(); kind === 'lesson' ? renderAdminLessons() : renderAdminExercises(); }; }
+            const sel = bar.querySelector('select'), cur = poolFilter[kind];
+            sel.innerHTML = `<option value="">Everything in the pool</option><option value="__pool__">Not assigned yet</option>` + globalClasses.map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(clsLabel(c.name))}</option>`).join('');
+            sel.value = cur;
+        }
+        function poolList(kind, arr) {
+            const f = poolFilter[kind], bar = document.getElementById('pool-filter-' + kind), q = bar ? (bar.dataset.q || '') : '';
+            return arr.filter(it => (!f || (f === '__pool__' ? itemClasses(it).length === 0 : inClass(it, f))) && (!q || String(it.title).toLowerCase().includes(q)));
+        }
+        window.openShare = function (kind, id) {
+            const it = (kind === 'lesson' ? adminLessons : adminExercises).find(x => String(x.id) === String(id)); if (!it) return;
+            const old = document.getElementById('share-modal'); if (old) old.remove();
+            const cur = new Set(itemClasses(it)), d = document.createElement('div'); d.id = 'share-modal'; d.className = 'fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4';
+            d.innerHTML = `<div class="bg-white rounded-xl shadow-xl w-full max-w-sm p-5"><h3 class="text-lg font-bold mb-1">Assign to classes</h3><p class="text-sm text-gray-500 mb-3 truncate">${escapeHtml(it.title)}</p>
+                <div class="max-h-64 overflow-y-auto space-y-1 mb-4">${globalClasses.map(c => `<label class="flex items-center gap-2 text-sm py-1"><input type="checkbox" class="w-4 h-4" value="${escapeHtml(c.name)}" ${cur.has(c.name) ? 'checked' : ''}> ${escapeHtml(clsLabel(c.name))}</label>`).join('') || '<span class="text-gray-500 text-sm">No classes yet.</span>'}</div>
+                <p class="text-xs text-gray-500 mb-3">The item stays one single copy in your pool. Unticking everything puts it back in the pool, hidden from students.</p>
+                <div class="flex gap-2"><button id="share-save" class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium">Save</button><button id="share-x" class="px-4 py-2 border rounded-lg text-sm">Cancel</button><span id="share-msg" class="text-sm text-red-600 self-center"></span></div></div>`;
+            document.body.appendChild(d); document.getElementById('share-x').onclick = () => d.remove();
+            document.getElementById('share-save').onclick = async () => {
+                const picked = [...d.querySelectorAll('input:checked')].map(i => i.value), res = await assignClasses(kind, it, picked);
+                if (res) { document.getElementById('share-msg').textContent = res; return; } d.remove();
+            };
+        };
+        async function assignClasses(kind, it, picked) {
+            const table = kind === 'lesson' ? 'portal_lessons' : 'portal_exercises', patch = { target_class: picked[0] || '', classes: picked.slice(1) };
+            const { data, error } = await supabaseClient.from(table).update(patch).eq('id', it.id).select('id');
+            if (error || !data || !data.length) return 'Could not save. Run portal-setup-v13.sql in Supabase first.';
+            Object.assign(it, patch); kind === 'lesson' ? renderAdminLessons() : renderAdminExercises(); if (window.refreshAttachLists) refreshAttachLists();
+            return '';
+        }
+        // make sure items used by a class are visible to that class (adds the class tag, never copies)
+        window.__ensureAssigned = async function (kind, ids, cls) {
+            if (!cls) return;
+            const arr = kind === 'lesson' ? adminLessons : adminExercises;
+            for (const id of ids) { const it = arr.find(x => String(x.id) === String(id)); if (it && !inClass(it, cls)) { const all = itemClasses(it).concat([cls]); await assignClasses(kind, it, all); } }
+        };
+
         function renderAdminLessons() {
             const list = document.getElementById('admin-lessons-list');
+            filterBar('lesson');
             if (adminLessons.length === 0) {
-                list.innerHTML = '<li class="px-4 py-3 bg-white text-sm text-gray-500">No lessons published yet.</li>';
+                list.innerHTML = '<li class="px-4 py-3 bg-white text-sm text-gray-500">No lessons yet.</li>';
                 return;
             }
-            list.innerHTML = adminLessons.map(l => `
+            const shown = poolList('lesson', adminLessons);
+            if (!shown.length) { list.innerHTML = '<li class="px-4 py-3 bg-white text-sm text-gray-500">Nothing matches this filter.</li>'; return; }
+            list.innerHTML = shown.map(l => `
                 <li class="flex justify-between items-center px-4 py-3 gap-4 ${l.is_hidden ? 'bg-gray-100' : 'bg-white'}">
                     <div class="${l.is_hidden ? 'opacity-60' : ''}">
                         <span class="font-medium">${escapeHtml(l.title)}</span>${hiddenBadge(l)}
-                        <span class="block text-xs text-gray-500">${escapeHtml(l.target_class)}</span>
+                        <span class="block mt-1">${chipsHtml(l)}</span>
                     </div>
                     <div class="flex gap-4 flex-shrink-0">
+                        <button onclick="window.openShare('lesson', '${l.id}')" class="text-sky-600 text-sm hover:underline">Assign</button>
                         ${visibilityButton('lesson', l)}
                         <button onclick="window.adminEditLesson('${l.id}')" class="text-indigo-600 text-sm hover:underline">Edit</button>
                         <button onclick="window.adminDeleteLesson('${l.id}')" class="text-red-500 text-sm hover:underline">Delete</button>
@@ -842,17 +906,21 @@
 
         function renderAdminExercises() {
             const list = document.getElementById('admin-exercises-list');
+            filterBar('exercise');
             if (adminExercises.length === 0) {
-                list.innerHTML = '<li class="px-4 py-3 bg-white text-sm text-gray-500">No exercises published yet.</li>';
+                list.innerHTML = '<li class="px-4 py-3 bg-white text-sm text-gray-500">No exercises yet.</li>';
                 return;
             }
-            list.innerHTML = adminExercises.map(ex => `
+            const shown = poolList('exercise', adminExercises);
+            if (!shown.length) { list.innerHTML = '<li class="px-4 py-3 bg-white text-sm text-gray-500">Nothing matches this filter.</li>'; return; }
+            list.innerHTML = shown.map(ex => `
                 <li class="flex justify-between items-center px-4 py-3 gap-4 ${ex.is_hidden ? 'bg-gray-100' : 'bg-white'}">
                     <div class="${ex.is_hidden ? 'opacity-60' : ''}">
                         <span class="font-medium">${escapeHtml(ex.title)}</span>${hiddenBadge(ex)}
-                        <span class="block text-xs text-gray-500">${escapeHtml(ex.target_class)} &bull; ${(ex.questions || []).length} questions${describeSettings(ex.settings) ? ' &bull; ' + escapeHtml(describeSettings(ex.settings)) : ''}</span>
+                        <span class="block mt-1">${chipsHtml(ex)}</span><span class="block text-xs text-gray-500 mt-0.5">${(ex.questions || []).length} questions${describeSettings(ex.settings) ? ' &bull; ' + escapeHtml(describeSettings(ex.settings)) : ''}</span>
                     </div>
                     <div class="flex gap-4 flex-shrink-0">
+                        <button onclick="window.openShare('exercise', '${ex.id}')" class="text-sky-600 text-sm hover:underline">Assign</button>
                         ${visibilityButton('exercise', ex)}
                         <button onclick="window.adminEditExercise('${ex.id}')" class="text-indigo-600 text-sm hover:underline">Edit</button>
                         <button onclick="window.adminDeleteExercise('${ex.id}')" class="text-red-500 text-sm hover:underline">Delete</button>
@@ -906,7 +974,7 @@ window.adminDeleteLesson = async function(id) {
             const selects = document.querySelectorAll('.dynamic-class-select');
             selects.forEach(select => {
                 const currentVal = select.value;
-                select.innerHTML = '<option value="" disabled selected>-- Select Class --</option>';
+                select.innerHTML = (select.id === 'admin-lesson-class' || select.id === 'admin-ex-class') ? '<option value="" selected>Pool only (assign to classes later)</option>' : '<option value="" disabled selected>-- Select Class --</option>';
                 globalClasses.forEach(c => {
                     if (c.is_private && select.id === 'student-class-select') return;   // private students are never listed publicly
                     const label = c.is_private ? '\uD83D\uDD12 ' + (c.student_name || c.name) + ' (private)' : c.name;
@@ -1528,8 +1596,8 @@ function mcqOptionsHtml(key, q, shuffle) {
             const content = document.getElementById('admin-lesson-content').innerHTML.trim();
             const msgEl = document.getElementById('lesson-publish-msg');
 
-            if(!title || !targetClass || !content) {
-                msgEl.textContent = "Fill all fields."; msgEl.className = "ml-3 text-sm text-red-600 block"; return;
+            if(!title || !content) {
+                msgEl.textContent = "Fill the title and the lesson text."; msgEl.className = "ml-3 text-sm text-red-600 block"; return;
             }
 
             const exIds = getAttachIds('lesson');
@@ -1545,7 +1613,8 @@ function mcqOptionsHtml(key, q, shuffle) {
             }
             if (dropped && exIds.length) { alert("The lesson was saved, but the exercises could not be attached. Run portal-setup-v2.sql in the Supabase SQL editor, then edit the lesson and save again."); }
 
-            msgEl.textContent = wasEditing ? "Lesson Updated!" : "Lesson Published!";
+            if (targetClass && exIds.length) await window.__ensureAssigned('exercise', exIds, targetClass);
+            msgEl.textContent = wasEditing ? "Lesson Updated!" : (targetClass ? "Lesson Published!" : "Lesson saved in your pool. Use Assign to give it to classes.");
             msgEl.className = "ml-3 text-sm text-green-600 block";
             resetLessonForm();
             if (wasEditing) document.getElementById('admin-lesson-class').value = '';
@@ -1933,8 +2002,8 @@ window.adminAddQuestionBlock = function(type) {
             const targetClass = document.getElementById('admin-ex-class').value;
             const msgEl = document.getElementById('ex-publish-msg');
 
-            if(!title || !targetClass) {
-                msgEl.textContent = "Title and Class required."; msgEl.className = "ml-3 text-sm text-red-600 block"; return;
+            if(!title) {
+                msgEl.textContent = "Title required."; msgEl.className = "ml-3 text-sm text-red-600 block"; return;
             }
 
             const blocks = document.querySelectorAll('.admin-q-block');
@@ -2849,7 +2918,7 @@ function getAttachIds(kind) {
     const c = document.getElementById(attachCfg(kind).cls).value;
     const sel = (attachSel[kind] || []).map(String);
     if (!adminExercises.length) return sel;
-    const valid = new Set(adminExercises.filter(e => e.target_class === c).map(e => String(e.id)));
+    const valid = new Set(adminExercises.map(e => String(e.id)));
     return sel.filter(id => valid.has(id));
 }
 
@@ -2858,16 +2927,16 @@ function renderAttachList(kind) {
     const el = document.getElementById(box);
     if (!el) return;
     const c = document.getElementById(cls).value;
-    if (!c) { el.innerHTML = '<p class="text-sm text-gray-500">Select a class above to see its exercises.</p>'; return; }
-    const list = adminExercises.filter(e => e.target_class === c);
-    if (!list.length) { el.innerHTML = '<p class="text-sm text-gray-500">This class has no exercises yet. Create one with the button below.</p>'; return; }
+    if (!c && kind === 'homework') { el.innerHTML = '<p class="text-sm text-gray-500">Select a class above to pick exercises from your pool.</p>'; return; }
+    const list = adminExercises.slice().sort((a, b) => (c ? (window.__inClass(b, c) ? 1 : 0) - (window.__inClass(a, c) ? 1 : 0) : 0));
+    if (!list.length) { el.innerHTML = '<p class="text-sm text-gray-500">No exercises in your pool yet. Create one with the button below.</p>'; return; }
     const sel = attachSel[kind].map(String);
     el.innerHTML = list.map(ex => {
         const pos = sel.indexOf(String(ex.id));
         return `<label class="flex items-center gap-3 px-3 py-2 bg-white border rounded-lg cursor-pointer hover:border-indigo-300 ${pos >= 0 ? 'border-indigo-400 bg-indigo-50' : 'border-gray-200'}">
             <input type="checkbox" class="w-4 h-4" ${pos >= 0 ? 'checked' : ''} onchange="window.toggleAttach('${kind}', '${ex.id}', this.checked)">
             <span class="flex-1 text-sm font-medium text-gray-800">${escapeHtml(ex.title)}${ex.is_hidden ? ' <span class="text-xs text-amber-700">(hidden)</span>' : ''}
-                <span class="block text-xs font-normal text-gray-500">${(ex.questions || []).length} questions</span></span>
+                <span class="block text-xs font-normal text-gray-500">${(ex.questions || []).length} questions${c && window.__inClass(ex, c) ? ' &bull; <span class="text-indigo-600">already in this class</span>' : ''}</span></span>
             ${pos >= 0 ? `<span class="text-xs font-bold text-indigo-700 bg-indigo-100 rounded-full w-6 h-6 flex items-center justify-center">${pos + 1}</span>` : ''}
         </label>`;
     }).join('');
@@ -2892,7 +2961,7 @@ let exerciseReturn = null;   // 'lesson' | 'homework' when the teacher jumped to
 
 window.newExerciseFor = function (kind) {
     const c = document.getElementById(attachCfg(kind).cls).value;
-    if (!c) { alert('Choose a class first.'); return; }
+    if (!c && kind === 'homework') { alert('Choose a class first.'); return; }
     exerciseReturn = kind;
     window.switchAdminTab('exercises');
     setSelectValue(document.getElementById('admin-ex-class'), c);
@@ -5000,7 +5069,7 @@ class Board {
         const defName = this.lesson ? this.lesson.name : '';
         const selIds = new Set((this.lesson ? this.lesson.exercise_ids : []).map(String));
         const exAll = (typeof adminExercises !== 'undefined' ? adminExercises : []).slice();
-        const exRow = e => `<label class="flex items-start gap-2 py-1 text-sm cursor-pointer" data-cls="${escapeHtml(e.target_class || '')}"><input type="checkbox" class="bd-ex-ck mt-0.5 w-4 h-4" value="${escapeHtml(String(e.id))}" ${selIds.has(String(e.id)) ? 'checked' : ''}><span class="min-w-0 break-words"><b>${escapeHtml(e.title)}</b> <span class="text-xs text-gray-500">${escapeHtml(e.target_class || '')} &middot; ${(e.questions || []).length} q</span></span></label>`;
+        const exRow = e => `<label class="flex items-start gap-2 py-1 text-sm cursor-pointer" data-cls="${escapeHtml((window.__itemClasses ? window.__itemClasses(e) : [e.target_class]).join('|'))}"><input type="checkbox" class="bd-ex-ck mt-0.5 w-4 h-4" value="${escapeHtml(String(e.id))}" ${selIds.has(String(e.id)) ? 'checked' : ''}><span class="min-w-0 break-words"><b>${escapeHtml(e.title)}</b> <span class="text-xs text-gray-500">${escapeHtml(e.target_class || '')} &middot; ${(e.questions || []).length} q</span></span></label>`;
         document.body.insertAdjacentHTML('beforeend', `<div id="bd-save-modal" class="fixed inset-0 z-[9998] bg-black/50 flex items-center justify-center p-4">
             <div class="bg-white rounded-xl shadow-xl max-w-xl w-full max-h-[90vh] overflow-y-auto p-5">
                 <div class="flex justify-between items-start mb-3"><h3 class="text-lg font-bold text-gray-900">Lesson boards</h3><button type="button" data-x class="text-2xl leading-none text-gray-400 hover:text-gray-700">&times;</button></div>
@@ -5032,7 +5101,7 @@ class Board {
         const m = document.getElementById('bd-save-modal'), msg = m.querySelector('#bd-save-msg'), list = m.querySelector('#bd-save-list');
         const say = (t, bad) => { msg.textContent = t; msg.className = 'text-xs mt-2 ' + (bad ? 'text-red-600' : 'text-green-700'); };
         const close = () => m.remove();
-        const applyExFilter = () => { const only = m.querySelector('#bd-ex-only').checked; m.querySelectorAll('#bd-ex-list [data-cls]').forEach(l => { const ck = l.querySelector('input').checked; l.style.display = (!only || !cls || l.dataset.cls === cls || ck) ? '' : 'none'; }); };
+        const applyExFilter = () => { const only = m.querySelector('#bd-ex-only').checked; m.querySelectorAll('#bd-ex-list [data-cls]').forEach(l => { const ck = l.querySelector('input').checked; l.style.display = (!only || !cls || l.dataset.cls.split('|').includes(cls) || ck) ? '' : 'none'; }); };
         m.querySelector('#bd-ex-only').addEventListener('change', applyExFilter); applyExFilter();
         const chosen = () => [...m.querySelectorAll('.bd-ex-ck:checked')].map(c => c.value);
         const titleOf = id => { const e = exAll.find(x => String(x.id) === String(id)); return e ? e.title : null; };
@@ -6152,10 +6221,11 @@ window.liveExRefreshList = function () {
     const opt = e => `<option value="${escapeHtml(e.id)}">${escapeHtml(e.title)} (${(e.questions || []).length} q)</option>`;
     const lb = window.lessonBoard, attached = lb ? lb.ids.map(id => adminExercises.find(e => String(e.id) === id)).filter(Boolean) : [];
     const aset = new Set(attached.map(e => String(e.id)));
-    const list = (cls ? adminExercises.filter(e => e.target_class === cls) : []).filter(e => !aset.has(String(e.id)));
+    const list = (cls ? adminExercises.slice().sort((a, b) => (inCls(b) ? 1 : 0) - (inCls(a) ? 1 : 0)) : []).filter(e => !aset.has(String(e.id)));
+    function inCls(e) { return window.__inClass(e, cls); }
     let html = '';
     if (attached.length) html += `<optgroup label="Lesson: ${escapeHtml(lb.name)}">${attached.map(opt).join('')}</optgroup>`;
-    if (list.length) html += `<optgroup label="Other exercises of this class">${list.map(opt).join('')}</optgroup>`;
+    if (list.length) html += `<optgroup label="Rest of your pool (assigned to this class first)">${list.map(opt).join('')}</optgroup>`;
     sel.innerHTML = html ? '<option value="">-- Choose an exercise --</option>' + html : `<option value="">${cls ? 'No exercises for this class yet' : 'Choose a class first'}</option>`;
     if (cur && [...sel.options].some(o => o.value === cur)) sel.value = cur;
     else if (attached.length === 1) sel.value = String(attached[0].id);
@@ -6293,7 +6363,7 @@ function renderLiveEx() {
     return d.toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
   }
   function itemOptions(kind, cls, sel) {
-    let arr = lists()[kind] || []; if (cls && cls !== '*') { const f = arr.filter(x => x.target_class === cls); arr = f; }
+    let arr = lists()[kind] || []; if (cls && cls !== '*') { arr = kind === 'homework' ? arr.filter(x => x.target_class === cls) : arr.slice().sort((a, b) => (window.__inClass(b, cls) ? 1 : 0) - (window.__inClass(a, cls) ? 1 : 0)); }
     return arr.length ? arr.map(x => `<option value="${esc(x.id)}" ${String(x.id) === String(sel) ? 'selected' : ''}>${esc(x.title)}</option>`).join('') : '<option value="">(none for this class)</option>';
   }
   function render(prefill) {
@@ -6379,6 +6449,7 @@ function renderLiveEx() {
     if (exs.length && !sel.length) { out.textContent = 'Tick at least one exercise.'; return; }
     const until = $('n-until').value; 
     try {
+      if ((kind === 'exercise' || kind === 'lesson') && item && $('n-class').value !== '*') await window.__ensureAssigned(kind, [item], $('n-class').value);
       await call({ action: 'save_reminder', id: editing ? editing.id : undefined, kind, item_id: item, class_name: $('n-class').value, send_at: new Date($('n-when').value).toISOString(),
         subject: kind === 'custom' ? '' : subj, title: kind === 'custom' ? subj : '', message: msg, link_url: $('n-link').value.trim(), exercise_ids: sel, only_pending: $('n-pend').checked,
         repeat_days: [...document.querySelectorAll('.n-day')].filter(x => x.checked).map(x => Number(x.value)), repeat_until: until ? new Date(until + 'T23:59').toISOString() : null, tz_offset: new Date().getTimezoneOffset() });
